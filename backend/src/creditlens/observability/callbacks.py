@@ -42,6 +42,37 @@ class CreditLensCallback(BaseCallbackHandler):
 
     def on_llm_end(self, response: Any, *, run_id: UUID, **kwargs: Any) -> None:
         span_id = self._runs.get(str(run_id))
+        if not span_id:
+            return
+        usage = {}
+        llm_output = getattr(response, "llm_output", None) or {}
+        if isinstance(llm_output, dict):
+            usage = llm_output.get("token_usage") or llm_output.get("usage") or {}
+        generations = getattr(response, "generations", None) or []
+        preview = ""
+        if generations and generations[0]:
+            first = generations[0][0] if isinstance(generations[0], list) else generations[0]
+            preview = str(getattr(first, "text", "") or getattr(first, "message", "") or "")
+        self.obs.generation(
+            span_id,
+            model=str(llm_output.get("model_name") or "routerai"),
+            prompt_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+            completion_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
+            output_preview=preview,
+        )
+        self.obs.end_span(span_id)
+
+    def on_tool_start(self, serialized: dict[str, Any], input_str: str, *, run_id: UUID, **kwargs: Any) -> None:
+        name = (serialized or {}).get("name") or kwargs.get("name") or "tool"
+        span_id = self.obs.start_span(
+            self.trace_id,
+            str(name),
+            kind="tool",
+            attributes={"input": input_str[:500]},
+        )
+        self._runs[str(run_id)] = span_id
+
+    def on_tool_end(self, output: Any, *, run_id: UUID, **kwargs: Any) -> None:
+        span_id = self._runs.get(str(run_id))
         if span_id:
-            self.obs.generation(span_id, model=str(getattr(response, "llm_output", {}) or "routerai"))
             self.obs.end_span(span_id)

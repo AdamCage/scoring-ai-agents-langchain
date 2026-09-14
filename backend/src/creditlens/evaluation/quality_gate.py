@@ -8,16 +8,23 @@ from creditlens.config import ROOT
 THRESHOLDS = {
     "scoring_consistency": 1.0,
     "citation_precision": 0.25,
-    "faithfulness": 0.7,
+    "citation_grounding": 0.7,
     "required_tool_usage": 1.0,
     "numeric_consistency": 1.0,
 }
 
+VARIANT_THRESHOLDS = {
+    "vector-only": {**THRESHOLDS, "recall_at_5": 0.55},
+    "hybrid": THRESHOLDS,
+    "hybrid-rerank": THRESHOLDS,
+    "bad-prompt": {**THRESHOLDS, "citation_grounding": 0.95},
+}
 
-def evaluate_summary(summary: dict) -> tuple[bool, list[str]]:
+
+def evaluate_summary(summary: dict, thresholds: dict[str, float] | None = None) -> tuple[bool, list[str]]:
     failed: list[str] = []
     checked = 0
-    for metric, threshold in THRESHOLDS.items():
+    for metric, threshold in (thresholds or THRESHOLDS).items():
         value = summary.get(metric)
         if value is None:
             continue
@@ -36,7 +43,8 @@ def main(experiment: str = "hybrid-rerank") -> int:
         return 1
     payload = json.loads(path.read_text(encoding="utf-8"))
     summary = payload.get("summary") or {}
-    passed, failed = evaluate_summary(summary)
+    thresholds = VARIANT_THRESHOLDS.get(experiment, THRESHOLDS)
+    passed, failed = evaluate_summary(summary, thresholds)
     if not passed:
         print("QUALITY GATE FAILED:", "; ".join(failed))
         return 1

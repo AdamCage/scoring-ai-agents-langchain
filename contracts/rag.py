@@ -21,6 +21,7 @@ class RetrievedDocument(BaseModel):
 class RetrievalDebug(BaseModel):
     query: str
     filters: dict[str, str] = Field(default_factory=dict)
+    mode: str = "hybrid-rerank"
     vector_ids: list[str] = Field(default_factory=list)
     bm25_ids: list[str] = Field(default_factory=list)
     fused_ids: list[str] = Field(default_factory=list)

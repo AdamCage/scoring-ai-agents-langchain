@@ -1,5 +1,5 @@
 from contracts.application import Application, ApplicationPreset, ValidationResult
-from contracts.evaluation import EvalResult, EvalRun
+from contracts.evaluation import EvalResult, EvalRun, EvalVariant
 from contracts.events import SSEEvent, SSEEventType
 from contracts.observability import Generation, Span, SpanEvent, Trace
 from contracts.rag import RetrievedDocument
@@ -25,6 +25,7 @@ __all__ = [
     "Generation",
     "EvalRun",
     "EvalResult",
+    "EvalVariant",
     "SSEEvent",
     "SSEEventType",
 ]

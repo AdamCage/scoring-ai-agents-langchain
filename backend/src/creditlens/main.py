@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from creditlens.agents.runner import (
     apply_human_decision,
     chat_about_run,
+    iter_resume_sse,
     iter_sse,
     list_runs,
     load_run,
@@ -24,9 +25,19 @@ from creditlens.api.rate_limit import limit
 from creditlens.config import ROOT, get_settings
 from creditlens.db import init_db
 from creditlens.evaluation.quality_gate import THRESHOLDS, evaluate_summary
-from creditlens.evaluation.runner import latest_summary, list_experiments, run_evals
+from creditlens.evaluation.runner import (
+    latest_by_variant,
+    latest_summary,
+    list_experiments,
+    run_evals,
+)
+from creditlens.evaluation.variants import list_variants
 from creditlens.llm.routerai import llm_available
 from creditlens.observability.factory import get_observability
+from creditlens.observability.langfuse import available as langfuse_available
+from creditlens.observability.langfuse import public_url as langfuse_public_url
+from creditlens.observability.langsmith import public_url as langsmith_public_url
+from creditlens.observability.langsmith import status as langsmith_status
 from creditlens.presets import preset_by_id, presets
 from creditlens.rag.retrieve import knowledge_stats
 from creditlens.scoring.service import load_metadata, model_ready
@@ -53,6 +64,9 @@ app.include_router(docs_router)
 class AnalyzeBody(BaseModel):
     application: Application | None = None
     preset_id: str | None = None
+    hitl: str = "interrupt"
+    retrieval_mode: str = "hybrid-rerank"
+    prompt_version: str = "risk-v1"
 
 
 class ChatBody(BaseModel):
@@ -87,8 +101,11 @@ def health() -> dict:
         "llm_provider": "RouterAI" if llm_available() else "offline-fallback",
         "llm_configured": llm_available(),
         "observability": settings.observability,
-        "langsmith": "disabled",
-        "langfuse": "disabled",
+        "langsmith": langsmith_status(),
+        "langfuse": "enabled" if langfuse_available() else "missing",
+        "langsmith_url": langsmith_public_url(),
+        "langfuse_url": langfuse_public_url(),
+        "vector_backend": "in-memory",
         "build": settings.app_version,
         "environment": settings.app_env,
     }
@@ -112,7 +129,12 @@ def analyze(body: AnalyzeBody, request: Request):
         raise HTTPException(400, "application or preset_id required")
 
     def stream():
-        yield from iter_sse(app_data)
+        yield from iter_sse(
+            app_data,
+            hitl="auto" if body.hitl == "auto" else "interrupt",
+            retrieval_mode=body.retrieval_mode,
+            prompt_version=body.prompt_version,
+        )
 
     return StreamingResponse(
         stream(),
@@ -132,7 +154,12 @@ def analyze_sync(body: AnalyzeBody, request: Request):
         app_data = preset.application
     if app_data is None:
         raise HTTPException(400, "application or preset_id required")
-    run_id, state, events = run_analysis(app_data)
+    run_id, state, events = run_analysis(
+        app_data,
+        hitl="auto" if body.hitl == "auto" else "interrupt",
+        retrieval_mode=body.retrieval_mode,
+        prompt_version=body.prompt_version,
+    )
     return {
         "run_id": run_id,
         "state": {
@@ -161,6 +188,22 @@ def review(run_id: str, body: ReviewBody) -> dict:
     if not item:
         raise HTTPException(404)
     return item
+
+
+@app.post("/api/runs/{run_id}/resume")
+def resume(run_id: str, body: ReviewBody, request: Request):
+    limit(request, settings.analyze_rate_limit, 60)
+    if not load_run(run_id):
+        raise HTTPException(404)
+
+    def stream():
+        yield from iter_resume_sse(run_id, body.decision, body.comment)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/chat")
@@ -203,7 +246,7 @@ def _evals_payload() -> dict:
     summary = latest_summary()
     experiments = list_experiments()
     gate = None
-    if experiments:
+    if summary:
         passed, failed = evaluate_summary(summary)
         gate = {"passed": passed, "failed": failed}
     return {
@@ -211,6 +254,9 @@ def _evals_payload() -> dict:
         "experiments": experiments,
         "gate": gate,
         "thresholds": THRESHOLDS,
+        "variants": [item.model_dump() for item in list_variants()],
+        "latest_by_variant": latest_by_variant(),
+        "langfuse_url": langfuse_public_url(),
     }
 
 

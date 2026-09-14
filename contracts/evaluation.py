@@ -14,6 +14,14 @@ class EvalResult(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+class EvalVariant(BaseModel):
+    name: str
+    retrieval: Literal["vector", "hybrid", "hybrid-rerank"]
+    reranker: bool = True
+    prompt: str = "risk-v1"
+    expected_gate: Literal["pass", "fail"] = "pass"
+
+
 class EvalRun(BaseModel):
     run_id: str
     experiment: str
@@ -25,3 +33,4 @@ class EvalRun(BaseModel):
     git_sha: str | None = None
     rag_version: str = "hybrid-v1"
     prompt_version: str = "risk-v1"
+    langfuse_url: str | None = None

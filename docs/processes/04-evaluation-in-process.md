@@ -1,16 +1,21 @@
 # Как evaluation закрывает контур
 
-Датасеты: `evals/datasets/{scoring,rag,explanation,agent}_cases.jsonl` (≥30 кейсов вместе с пресетами).
+Датасеты: `evals/datasets/{scoring,rag,explanation,agent}_cases.jsonl`.
+
+Варианты pipeline:
+
+- `vector-only` — только vector, ожидаемый FAIL
+- `hybrid` — vector + BM25 + RRF
+- `hybrid-rerank` — production, deploy gate
+- `bad-prompt` — выдуманная цитата, ожидаемый FAIL
 
 Слои:
 
 - детерминированные: `scoring_consistency`, `structured_output`, `numeric_consistency`, `required_tool_usage`
 - RAG: Recall@5, MRR, citation precision
-- trajectory: validate → score → retrieve → risk → critic → synthesize
-- faithfulness: цитаты ⊆ retrieved documents
+- `citation_grounding`: цитаты ⊆ retrieved documents
+- `faithfulness`: LLM-as-a-Judge, только если есть RouterAI ключ
 
-Раннер пишет SQLite и `evals/experiments/<name>/results.json`. CI вызывает `quality_gate.py`.
-
-Quality Lab показывает overview и сравнение `baseline-rag` / `hybrid-rag` / `hybrid-rerank`.
+Раннер пишет SQLite и `evals/experiments/<name>/results.json`. Release workflow: test → eval → deploy.
 
 ![Quality Lab](../screenshots/ui/quality-lab.webp)

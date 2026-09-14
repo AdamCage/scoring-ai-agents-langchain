@@ -2,13 +2,15 @@ flowchart TB
   API[FastAPI_analyze]
   Adapter[creditlens.llm.routerai]
   Graph[StateGraph_CreditState]
-  Tools[score_SHAP_retrieve_tools]
-  Callbacks[CreditLensCallback]
-  Tracer[LocalObservability_SQLite]
-  SSE[SSE_updates_custom_messages]
+  Agents[LangChain_create_agent]
+  Tools[score_SHAP_retrieve_whatif]
+  Local[SQLite_spans]
+  Langfuse[Langfuse_OSS]
+  SSE[live_SSE]
 
   API --> Graph
   Graph --> Adapter
-  Graph --> Tools
-  Graph --> Callbacks --> Tracer
+  Graph --> Agents --> Tools
+  Graph --> Local
+  Graph --> Langfuse
   Graph --> SSE

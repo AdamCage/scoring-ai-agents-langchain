@@ -22,27 +22,46 @@ export function ObservabilityPage() {
   }, [items, selected]);
   const spans = current?.spans || [];
   const totalMs = spans.reduce((sum, span) => sum + (span.duration_ms || 0), 0);
+  const langfuse = health.data?.langfuse === "enabled" ? "enabled" : "missing";
+  const langsmith = health.data?.langsmith ?? "ready_no_key";
 
   return (
     <div>
       <PageTitle
         kicker="Observability"
         title="Что произошло в этом прогоне"
-        text="Локальные spans в SQLite: узел, длительность, события, code path. Без LangSmith и Langfuse."
+        text="Локальные spans в SQLite — демо-лента. Тот же run уходит в Langfuse OSS, если сервис поднят. LangSmith — тот же адаптер, включается ключом."
       />
 
       <div className="grid gap-3 md:grid-cols-4">
         <Metric label="Провайдер" value={health.data?.observability ?? "—"} />
-        <Metric label="LangSmith / Langfuse" value="выключены" />
-        <Metric label="Прогонов" value={String(items.length)} />
+        <Metric label="Langfuse" value={langfuse} />
+        <Metric label="LangSmith" value={langsmith} />
         <Metric label="Сумма таймингов" value={formatMs(current ? totalMs : null)} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-3 text-sm">
+        {health.data?.langfuse_url ? (
+          <a className="underline" href={health.data.langfuse_url} target="_blank" rel="noreferrer">
+            Open Langfuse
+          </a>
+        ) : (
+          <span className="text-muted">Langfuse URL появится, когда заданы HOST и ключи проекта.</span>
+        )}
+        {health.data?.langsmith_url ? (
+          <a className="underline" href={health.data.langsmith_url} target="_blank" rel="noreferrer">
+            Open LangSmith
+          </a>
+        ) : (
+          <span className="text-muted">LangSmith adapter готов, ключ не задан.</span>
+        )}
       </div>
 
       <section className="tile mt-6 p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-[17px] font-semibold">История операций</h2>
-            <p className="mt-1 text-sm text-muted">Как выписка в банке: один прогон — одна лента узлов.</p>
+            <p className="mt-1 text-sm text-muted">Duration считается по стене: span стартует до тела node.</p>
           </div>
           <label className="block text-sm">
             <span className="mb-1 block text-xs text-muted">Прогон</span>
@@ -80,9 +99,19 @@ export function ObservabilityPage() {
                   <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
                     <TechPill>{span.kind}</TechPill>
                     {span.mmd_node ? <TechPill>{span.mmd_node}</TechPill> : null}
-                    {span.events.length ? <span className="rounded-full bg-white px-2.5 py-1">{span.events.map((event) => event.name).join(" → ")}</span> : null}
+                    {span.events.length ? (
+                      <span className="rounded-full bg-white px-2.5 py-1">{span.events.map((event) => event.name).join(" → ")}</span>
+                    ) : null}
                     {span.error ? <span className="rounded-full bg-red-50 px-2.5 py-1 text-bad">{span.error}</span> : null}
                   </div>
+                  {span.events.some((event) => event.payload && Object.keys(event.payload).length) ? (
+                    <p className="mt-2 font-mono text-[11px] text-muted">
+                      {span.events
+                        .filter((event) => event.payload?.ids)
+                        .map((event) => `${event.name}: ${Array.isArray(event.payload?.ids) ? event.payload?.ids.slice(0, 3).join(", ") : ""}`)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
                   {span.code_path ? <p className="mt-2 font-mono text-[11px] text-muted">{span.code_path}</p> : null}
                 </div>
               </li>

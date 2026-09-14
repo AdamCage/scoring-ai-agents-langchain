@@ -42,7 +42,8 @@ input[type="range"] {
   @apply h-2 w-full cursor-pointer appearance-none rounded-full bg-canvas accent-ink;
 }
 
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   @apply h-4 w-4 shrink-0 rounded accent-ink;
 }
 

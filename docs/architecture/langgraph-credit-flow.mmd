@@ -1,15 +1,15 @@
 flowchart TD
   startNode[START]
   validate[validate_application]
-  needInfo[request_information_INTERRUPT]
+  needInfo[request_information]
   scoreNode[calculate_score_tool]
   shapNode[explain_score_SHAP]
   retrieveNode[retrieve_policy_hybrid_RAG]
-  riskAgent[risk_analyst_agent]
+  riskAgent[risk_analyst_langchain_agent]
   criticAgent[policy_critic_agent]
   moreRag[retrieve_more]
   synthAgent[final_synthesizer]
-  humanReview[human_review]
+  humanReview[human_review_INTERRUPT]
   endNode[END]
 
   startNode --> validate
@@ -22,4 +22,6 @@ flowchart TD
   riskAgent --> criticAgent
   criticAgent -->|insufficient| moreRag --> riskAgent
   criticAgent -->|acceptable| synthAgent
-  synthAgent --> humanReview --> endNode
+  synthAgent --> humanReview
+  humanReview -->|approve_reject| endNode
+  humanReview -->|request_docs| moreRag

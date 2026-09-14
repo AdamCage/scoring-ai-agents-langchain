@@ -7,21 +7,56 @@ services:
     environment:
       APP_ENV: production
       DATABASE_PATH: /data/creditlens.db
-      QDRANT_URL: http://qdrant:6333
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_URL: ${LANGFUSE_PUBLIC_URL:-http://127.0.0.1:3000}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-lf_pk_creditlens_demo}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-lf_sk_creditlens_demo}
+      OBSERVABILITY: both
     volumes:
       - app_data:/data
     depends_on:
-      - qdrant
+      - langfuse
     expose:
       - "8000"
 
-  qdrant:
-    image: qdrant/qdrant:v1.12.4
+  langfuse-db:
+    image: postgres:16-alpine
     restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
     volumes:
-      - qdrant_data:/qdrant/storage
-    expose:
-      - "6333"
+      - langfuse_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  langfuse:
+    image: langfuse/langfuse:2
+    restart: unless-stopped
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://127.0.0.1:3000}
+      NEXTAUTH_SECRET: creditlens-langfuse-nextauth
+      SALT: creditlens-langfuse-salt
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_INIT_ORG_ID: creditlens
+      LANGFUSE_INIT_ORG_NAME: CreditLens
+      LANGFUSE_INIT_PROJECT_ID: creditlens
+      LANGFUSE_INIT_PROJECT_NAME: creditlens
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: lf_pk_creditlens_demo
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: lf_sk_creditlens_demo
+      LANGFUSE_INIT_USER_EMAIL: demo@creditlens.local
+      LANGFUSE_INIT_USER_NAME: CreditLens
+      LANGFUSE_INIT_USER_PASSWORD: creditlens-demo
+    ports:
+      - "3000:3000"
 
   nginx:
     image: nginx:1.27-alpine
@@ -35,4 +70,4 @@ services:
 
 volumes:
   app_data:
-  qdrant_data:
+  langfuse_db:

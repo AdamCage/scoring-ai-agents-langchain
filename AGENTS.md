@@ -20,9 +20,10 @@ Change only the directories you own. Shared contracts are frozen after Wave 0.
 
 1. `ScoringResult` is written only by the scoring tool.
 2. RouterAI keys stay on the backend. No `VITE_*` LLM secrets.
-3. Observability default is `local`. LangSmith/Langfuse adapters stay as `NotConfigured`.
+3. Observability default is dual-write: local SQLite + Langfuse OSS when configured. LangSmith is the same adapter and stays `ready_no_key` until `LANGSMITH_API_KEY` is set. Do not claim the adapters are intentionally disabled.
 4. Docs in `docs/architecture/*.mmd` and `docs/processes/*.md` are the source of truth for Architecture Explorer.
 5. UI copy and process docs are Russian. Code identifiers are English.
+6. A new LLM node needs a Pydantic schema, eval cases and trace metadata.
 
 ## Local commands
 
