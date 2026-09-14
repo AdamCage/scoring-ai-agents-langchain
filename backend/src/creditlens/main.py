@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -19,12 +20,19 @@ from creditlens.agents.runner import (
     run_analysis,
     what_if,
 )
+from creditlens.agents.runtime import graph_definition
 from creditlens.api.docs import router as docs_router
 from creditlens.api.rate_limit import limit
 from creditlens.config import ROOT, get_settings
 from creditlens.db import init_db
 from creditlens.evaluation.quality_gate import THRESHOLDS, evaluate_summary
-from creditlens.evaluation.runner import latest_summary, list_experiments, run_evals
+from creditlens.evaluation.runner import (
+    iter_eval_events,
+    latest_summary,
+    list_experiments,
+    list_results,
+    run_evals,
+)
 from creditlens.llm.routerai import llm_available
 from creditlens.observability.factory import get_observability
 from creditlens.presets import preset_by_id, presets
@@ -199,9 +207,10 @@ def run_trace(run_id: str) -> dict:
     return item.model_dump()
 
 
-def _evals_payload() -> dict:
+def _evals_payload(run_id: str | None = None) -> dict:
     summary = latest_summary()
     experiments = list_experiments()
+    results = list_results(run_id)
     gate = None
     if experiments:
         passed, failed = evaluate_summary(summary)
@@ -209,9 +218,15 @@ def _evals_payload() -> dict:
     return {
         "summary": summary,
         "experiments": experiments,
+        "results": results,
         "gate": gate,
         "thresholds": THRESHOLDS,
     }
+
+
+@app.get("/api/graph/definition")
+def get_graph_definition() -> dict:
+    return graph_definition()
 
 
 @app.get("/api/evals")
@@ -219,11 +234,42 @@ def evals() -> dict:
     return _evals_payload()
 
 
+@app.get("/api/evals/{run_id}")
+def eval_detail(run_id: str) -> dict:
+    experiments = [item for item in list_experiments() if item["run_id"] == run_id]
+    if not experiments:
+        raise HTTPException(404)
+    summary = experiments[0]["summary"]
+    passed, failed = evaluate_summary(summary)
+    return {
+        "experiment": experiments[0],
+        "summary": summary,
+        "results": list_results(run_id),
+        "gate": {"passed": passed, "failed": failed},
+        "thresholds": THRESHOLDS,
+    }
+
+
 @app.post("/api/evals")
 def run_evaluation(body: EvalBody, request: Request):
     limit(request, 4, 300)
     run_evals(experiment=body.experiment, smoke=body.smoke)
     return _evals_payload()
+
+
+@app.post("/api/evals/stream")
+def run_evaluation_stream(body: EvalBody, request: Request):
+    limit(request, 4, 300)
+
+    def stream():
+        for event in iter_eval_events(experiment=body.experiment, smoke=body.smoke):
+            yield f"event: {event.get('type', 'message')}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"

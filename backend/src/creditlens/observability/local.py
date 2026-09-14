@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from contracts.observability import Span, SpanEvent, Trace
+from contracts.observability import Generation, Span, SpanEvent, Trace
 
 from creditlens.db import get_conn
 
@@ -21,17 +22,21 @@ def _iso(value: datetime) -> str:
 class LocalObservability:
     name = "local"
 
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
     def start_trace(self, run_id: str, name: str, metadata: dict[str, Any]) -> str:
         trace_id = str(uuid.uuid4())
         conn = get_conn()
-        conn.execute(
-            """
-            INSERT INTO traces(trace_id, run_id, name, started_at, ended_at, duration_ms, status, metadata_json)
-            VALUES (?, ?, ?, ?, NULL, NULL, 'running', ?)
-            """,
-            (trace_id, run_id, name, _iso(_now()), json.dumps(metadata, ensure_ascii=False)),
-        )
-        conn.commit()
+        with self._lock:
+            conn.execute(
+                """
+                INSERT INTO traces(trace_id, run_id, name, started_at, ended_at, duration_ms, status, metadata_json)
+                VALUES (?, ?, ?, ?, NULL, NULL, 'running', ?)
+                """,
+                (trace_id, run_id, name, _iso(_now()), json.dumps(metadata, ensure_ascii=False)),
+            )
+            conn.commit()
         return trace_id
 
     def start_span(
@@ -47,49 +52,52 @@ class LocalObservability:
     ) -> str:
         span_id = str(uuid.uuid4())
         conn = get_conn()
-        conn.execute(
-            """
-            INSERT INTO spans(
-                span_id, trace_id, parent_span_id, name, kind, status, started_at,
-                ended_at, duration_ms, attributes_json, error, code_path, mmd_node
-            ) VALUES (?, ?, ?, ?, ?, 'running', ?, NULL, NULL, ?, NULL, ?, ?)
-            """,
-            (
-                span_id,
-                trace_id,
-                parent_span_id,
-                name,
-                kind,
-                _iso(_now()),
-                json.dumps(attributes or {}, ensure_ascii=False),
-                code_path,
-                mmd_node,
-            ),
-        )
-        conn.commit()
+        with self._lock:
+            conn.execute(
+                """
+                INSERT INTO spans(
+                    span_id, trace_id, parent_span_id, name, kind, status, started_at,
+                    ended_at, duration_ms, attributes_json, error, code_path, mmd_node
+                ) VALUES (?, ?, ?, ?, ?, 'running', ?, NULL, NULL, ?, NULL, ?, ?)
+                """,
+                (
+                    span_id,
+                    trace_id,
+                    parent_span_id,
+                    name,
+                    kind,
+                    _iso(_now()),
+                    json.dumps(attributes or {}, ensure_ascii=False),
+                    code_path,
+                    mmd_node,
+                ),
+            )
+            conn.commit()
         return span_id
 
     def end_span(self, span_id: str, status: str = "ok", error: str | None = None) -> None:
         conn = get_conn()
-        row = conn.execute("SELECT started_at FROM spans WHERE span_id=?", (span_id,)).fetchone()
-        ended = _now()
-        duration = None
-        if row:
-            started = datetime.fromisoformat(row["started_at"])
-            duration = (ended - started).total_seconds() * 1000
-        conn.execute(
-            "UPDATE spans SET status=?, ended_at=?, duration_ms=?, error=? WHERE span_id=?",
-            (status, _iso(ended), duration, error, span_id),
-        )
-        conn.commit()
+        with self._lock:
+            row = conn.execute("SELECT started_at FROM spans WHERE span_id=?", (span_id,)).fetchone()
+            ended = _now()
+            duration = None
+            if row:
+                started = datetime.fromisoformat(row["started_at"])
+                duration = (ended - started).total_seconds() * 1000
+            conn.execute(
+                "UPDATE spans SET status=?, ended_at=?, duration_ms=?, error=? WHERE span_id=?",
+                (status, _iso(ended), duration, error, span_id),
+            )
+            conn.commit()
 
     def event(self, span_id: str, name: str, payload: dict[str, Any] | None = None) -> None:
         conn = get_conn()
-        conn.execute(
-            "INSERT INTO span_events(span_id, timestamp, name, payload_json) VALUES (?, ?, ?, ?)",
-            (span_id, _iso(_now()), name, json.dumps(payload or {}, ensure_ascii=False)),
-        )
-        conn.commit()
+        with self._lock:
+            conn.execute(
+                "INSERT INTO span_events(span_id, timestamp, name, payload_json) VALUES (?, ?, ?, ?)",
+                (span_id, _iso(_now()), name, json.dumps(payload or {}, ensure_ascii=False)),
+            )
+            conn.commit()
 
     def generation(
         self,
@@ -101,28 +109,30 @@ class LocalObservability:
         output_preview: str = "",
     ) -> None:
         conn = get_conn()
-        conn.execute(
-            """
-            INSERT INTO generations(span_id, model, prompt_tokens, completion_tokens, input_preview, output_preview)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (span_id, model, prompt_tokens, completion_tokens, input_preview[:2000], output_preview[:2000]),
-        )
-        conn.commit()
+        with self._lock:
+            conn.execute(
+                """
+                INSERT INTO generations(span_id, model, prompt_tokens, completion_tokens, input_preview, output_preview)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (span_id, model, prompt_tokens, completion_tokens, input_preview[:2000], output_preview[:2000]),
+            )
+            conn.commit()
 
     def end_trace(self, trace_id: str, status: str = "ok") -> None:
         conn = get_conn()
-        row = conn.execute("SELECT started_at FROM traces WHERE trace_id=?", (trace_id,)).fetchone()
-        ended = _now()
-        duration = None
-        if row:
-            started = datetime.fromisoformat(row["started_at"])
-            duration = (ended - started).total_seconds() * 1000
-        conn.execute(
-            "UPDATE traces SET status=?, ended_at=?, duration_ms=? WHERE trace_id=?",
-            (status, _iso(ended), duration, trace_id),
-        )
-        conn.commit()
+        with self._lock:
+            row = conn.execute("SELECT started_at FROM traces WHERE trace_id=?", (trace_id,)).fetchone()
+            ended = _now()
+            duration = None
+            if row:
+                started = datetime.fromisoformat(row["started_at"])
+                duration = (ended - started).total_seconds() * 1000
+            conn.execute(
+                "UPDATE traces SET status=?, ended_at=?, duration_ms=? WHERE trace_id=?",
+                (status, _iso(ended), duration, trace_id),
+            )
+            conn.commit()
 
     def get_trace(self, trace_id: str) -> Trace | None:
         conn = get_conn()
@@ -168,6 +178,20 @@ class LocalObservability:
                     (span["span_id"],),
                 ).fetchall()
             ]
+            generations = [
+                Generation(
+                    span_id=span["span_id"],
+                    model=gen["model"],
+                    prompt_tokens=gen["prompt_tokens"] or 0,
+                    completion_tokens=gen["completion_tokens"] or 0,
+                    input_preview=gen["input_preview"] or "",
+                    output_preview=gen["output_preview"] or "",
+                )
+                for gen in conn.execute(
+                    "SELECT * FROM generations WHERE span_id=? ORDER BY id",
+                    (span["span_id"],),
+                ).fetchall()
+            ]
             spans.append(
                 Span(
                     span_id=span["span_id"],
@@ -181,6 +205,7 @@ class LocalObservability:
                     duration_ms=span["duration_ms"],
                     attributes=json.loads(span["attributes_json"]),
                     events=events,
+                    generations=generations,
                     error=span["error"],
                     code_path=span["code_path"],
                     mmd_node=span["mmd_node"],

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-import time
+import queue
+import threading
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -13,32 +14,14 @@ from contracts.state import CreditState
 
 from creditlens.agents.graph import get_graph
 from creditlens.agents.nodes import _top_shap
+from creditlens.agents.runtime import RunContext, bind_context, make_event, unbind_context
 from creditlens.db import get_conn
 from creditlens.observability.factory import get_observability
 from creditlens.rag.retrieve import RAG_VERSION
 from creditlens.scoring.features import FEATURE_LABELS
 from creditlens.scoring.service import explain_application, load_metadata, score_application
 
-NODE_META = {
-    "validate_application": ("creditlens.agents.nodes.validate_application", "validate"),
-    "request_information": ("creditlens.agents.nodes.request_information", "needInfo"),
-    "calculate_score": ("creditlens.scoring.service.score_application", "scoreNode"),
-    "explain_score": ("creditlens.scoring.service.explain_application", "shapNode"),
-    "retrieve_policy": ("creditlens.rag.retrieve.retrieve_policy", "retrieveNode"),
-    "retrieve_more": ("creditlens.rag.retrieve.retrieve_policy", "moreRag"),
-    "risk_analysis": ("creditlens.agents.nodes.risk_analysis", "riskAgent"),
-    "policy_critic": ("creditlens.agents.nodes.policy_critic", "criticAgent"),
-    "synthesize": ("creditlens.agents.nodes.synthesize", "synthAgent"),
-    "human_review": ("creditlens.agents.nodes.human_review", "humanReview"),
-}
-
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
-def _event(event_type: str, run_id: str, node: str | None, data: dict[str, Any]) -> SSEEvent:
-    return SSEEvent(type=event_type, node=node, run_id=run_id, timestamp_ms=_now_ms(), data=data)  # type: ignore[arg-type]
+_SENTINEL = object()
 
 
 def _jsonable(value: Any) -> Any:
@@ -90,11 +73,21 @@ def _save_run(run_id: str, app: Application, state: dict[str, Any], status: str)
     conn.commit()
 
 
-def run_analysis(app: Application, run_id: str | None = None) -> tuple[str, dict[str, Any], list[SSEEvent]]:
+def run_analysis(
+    app: Application,
+    run_id: str | None = None,
+    sink: Any | None = None,
+) -> tuple[str, dict[str, Any], list[SSEEvent]]:
     run_id = run_id or str(uuid.uuid4())
     events: list[SSEEvent] = []
     obs = get_observability()
     meta = load_metadata()
+
+    def emit(event: SSEEvent) -> None:
+        events.append(event)
+        if sink is not None:
+            sink(event)
+
     trace_id = obs.start_trace(
         run_id,
         "creditlens.analyze",
@@ -108,6 +101,7 @@ def run_analysis(app: Application, run_id: str | None = None) -> tuple[str, dict
     )
     graph = get_graph()
     state: CreditState = {
+        "run_id": run_id,
         "application": app,
         "retrieved_documents": [],
         "node_trace": [],
@@ -123,62 +117,19 @@ def run_analysis(app: Application, run_id: str | None = None) -> tuple[str, dict
         code_path="creditlens.agents.graph.build_graph",
         mmd_node="langgraph-credit-flow",
     )
+    ctx = RunContext(run_id=run_id, trace_id=trace_id, obs=obs, parent_span_id=parent, emit=emit)
+    bind_context(ctx)
     try:
         for step in graph.stream(state, stream_mode="updates"):
-            for node, update in step.items():
-                code_path, mmd = NODE_META.get(node, (f"creditlens.agents.nodes.{node}", node))
-                events.append(_event("node_start", run_id, node, {"mmd_node": mmd, "code_path": code_path}))
-                span_id = obs.start_span(
-                    trace_id,
-                    node,
-                    parent_span_id=parent,
-                    kind="tool" if node in {"calculate_score", "explain_score", "retrieve_policy", "retrieve_more"} else "chain",
-                    attributes={"mmd_node": mmd},
-                    code_path=code_path,
-                    mmd_node=mmd,
-                )
-                if node in {"retrieve_policy", "retrieve_more"} and update.get("retrieval_debug"):
-                    debug = update["retrieval_debug"]
-                    obs.event(span_id, "vector", {"ids": debug.vector_ids})
-                    obs.event(span_id, "bm25", {"ids": debug.bm25_ids})
-                    obs.event(span_id, "rrf", {"ids": debug.fused_ids})
-                    obs.event(span_id, "rerank", {"ids": debug.reranked_ids})
-                    events.append(
-                        _event(
-                            "retrieval",
-                            run_id,
-                            node,
-                            {
-                                "vector": debug.vector_ids,
-                                "bm25": debug.bm25_ids,
-                                "rrf": debug.fused_ids,
-                                "rerank": debug.reranked_ids,
-                                "latency_ms": debug.latency_ms,
-                            },
-                        )
-                    )
-                if node == "calculate_score" and update.get("scoring"):
-                    events.append(_event("tool", run_id, node, update["scoring"].model_dump()))
+            for _node, update in step.items():
                 state.update(update)
-                obs.end_span(span_id)
-                events.append(
-                    _event(
-                        "node_end",
-                        run_id,
-                        node,
-                        {
-                            "keys": list(update.keys()),
-                            "mmd_node": mmd,
-                        },
-                    )
-                )
         status = "ok"
         if state.get("interrupt_reason") == "validation":
             status = "interrupt"
-            events.append(_event("interrupt", run_id, "request_information", {"reason": "validation"}))
+            emit(make_event("interrupt", run_id, "request_information", {"reason": "validation"}))
         elif state.get("recommendation") and state["recommendation"].requires_human_review:
-            events.append(
-                _event(
+            emit(
+                make_event(
                     "interrupt",
                     run_id,
                     "human_review",
@@ -188,8 +139,8 @@ def run_analysis(app: Application, run_id: str | None = None) -> tuple[str, dict
         obs.end_span(parent)
         obs.end_trace(trace_id, "ok")
         _save_run(run_id, app, dict(state), status)
-        events.append(
-            _event(
+        emit(
+            make_event(
                 "done",
                 run_id,
                 None,
@@ -210,14 +161,34 @@ def run_analysis(app: Application, run_id: str | None = None) -> tuple[str, dict
         obs.end_span(parent, status="error", error=str(exc))
         obs.end_trace(trace_id, "error")
         _save_run(run_id, app, dict(state), "error")
-        events.append(_event("error", run_id, None, {"message": str(exc)}))
+        emit(make_event("error", run_id, None, {"message": str(exc)}))
         raise
+    finally:
+        unbind_context(run_id)
     return run_id, dict(state), events
 
 
+def iter_analysis_events(app: Application, run_id: str | None = None) -> Iterator[SSEEvent]:
+    pending: queue.Queue[Any] = queue.Queue()
+
+    def worker() -> None:
+        try:
+            run_analysis(app, run_id, sink=pending.put)
+        except Exception:
+            pass
+        finally:
+            pending.put(_SENTINEL)
+
+    threading.Thread(target=worker, daemon=True, name="creditlens-analyze").start()
+    while True:
+        item = pending.get()
+        if item is _SENTINEL:
+            break
+        yield item
+
+
 def iter_sse(app: Application, run_id: str | None = None) -> Iterator[str]:
-    _run_id, _state, events = run_analysis(app, run_id)
-    for event in events:
+    for event in iter_analysis_events(app, run_id):
         yield f"event: {event.type}\ndata: {event.model_dump_json()}\n\n"
 
 

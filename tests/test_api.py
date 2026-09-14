@@ -22,7 +22,17 @@ def test_health_and_open_demo_flow():
     traces = client.get("/api/traces")
     assert traces.status_code == 200
     assert traces.json()["traces"]
+    span = traces.json()["traces"][0]["spans"][0]
+    assert "generations" in span
+    assert "events" in span
     evals = client.get("/api/evals")
     assert evals.status_code == 200
     assert "summary" in evals.json()
     assert "experiments" in evals.json()
+    assert "results" in evals.json()
+    graph = client.get("/api/graph/definition")
+    assert graph.status_code == 200
+    payload = graph.json()
+    assert payload["nodes"]
+    assert payload["mermaid"]
+    assert "calculate_score" in {node["id"] for node in payload["nodes"]}

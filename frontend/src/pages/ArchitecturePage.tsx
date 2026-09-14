@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import mermaid from "mermaid";
-import { api, Trace } from "../api";
+import { api, GraphDefinition, Trace } from "../api";
+import { LiveGraph } from "../components/LiveGraph";
+import { statusesFromSpans } from "../graphModel";
 import { PageTitle, TechPill } from "../ui";
 
 mermaid.initialize({
@@ -57,7 +59,15 @@ export function ArchitecturePage() {
     queryKey: ["traces-mini"],
     queryFn: () => api<{ traces: Trace[] }>("/api/traces"),
   });
+  const definition = useQuery({
+    queryKey: ["graph-definition"],
+    queryFn: () => api<GraphDefinition>("/api/graph/definition"),
+  });
   const last = traces.data?.traces?.[0];
+  const lastStatuses = useMemo(
+    () => statusesFromSpans(last?.spans || [], definition.data),
+    [last, definition.data],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +142,17 @@ export function ArchitecturePage() {
         ) : (
           <p className="mt-5 text-sm text-muted">Рисую схему…</p>
         )}
+      </section>
+
+      <section className="tile mt-6 p-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-[17px] font-semibold">Последний прогон на графе</h2>
+            <p className="mt-1 text-sm text-muted">Та же mermaid-схема, что на заявке: узлы из последнего trace подсвечены.</p>
+          </div>
+          <TechPill>live graph</TechPill>
+        </div>
+        <LiveGraph definition={definition.data} statuses={lastStatuses} />
       </section>
 
       <section className="tile mt-6 p-6">
