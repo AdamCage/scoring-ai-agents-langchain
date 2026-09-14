@@ -106,7 +106,9 @@ def login(body: LoginBody, request: Request):
 
     token = issue_session(body.password)
     response = JSONResponse({"ok": True})
-    set_cookie(response, token)
+    forwarded = request.headers.get("x-forwarded-proto", "")
+    secure = request.url.scheme == "https" or forwarded.lower() == "https"
+    set_cookie(response, token, secure=secure)
     return response
 
 

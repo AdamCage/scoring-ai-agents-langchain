@@ -1,11 +1,22 @@
 # Деплой: nginx на VM
 
-Compose: `nginx` (80), `app` (8000 только localhost), `qdrant`.
+CreditLens на Timeweb: `31.130.128.81`. systemd `creditlens` слушает `127.0.0.1:8010`.
 
-GitHub Actions собирает образ в GHCR и по SSH делает `docker compose pull && up -d`. VM не собирает зависимости.
+- Порт **8080** — запасной вход по IP (`deploy/nginx/creditlens-8080.conf`).
+- Домен **credit-adamcage.ru** — отдельный `server_name` на 80/443. Не `default_server`: Love AI на голом IP не трогаем.
 
-Секреты RouterAI лежат в `/opt/creditlens/.env` на сервере, не в GitHub Actions.
+## DNS
 
-TLS-серверблок: `deploy/nginx/creditlens.ssl.conf.example`. Домен добавляется позже без смены приложения.
+A-запись должна указывать на **эту VM**: `31.130.128.81`.
 
-![CI/CD](../screenshots/diagrams/cicd-nginx-vm.png)
+`95.163.244.138` — общий IP REG.RU (тысячи чужих сайтов, нет SSH). Let's Encrypt HTTP-01 туда не дойдёт.
+
+```bash
+sudo bash /opt/creditlens/scripts/setup_domain_tls.sh
+```
+
+Скрипт ставит HTTP-vhost + ACME, проверяет A, выпускает сертификат, включает HTTPS и редирект.
+
+Секреты RouterAI только в `/opt/creditlens/.env`.
+
+TLS-шаблон: `deploy/nginx/credit-adamcage.ru.conf`.

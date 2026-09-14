@@ -4,7 +4,7 @@ import hmac
 import time
 from hashlib import sha256
 
-from fastapi import Cookie, HTTPException, Response
+from fastapi import Cookie, HTTPException, Request, Response
 
 from creditlens.config import get_settings
 
@@ -34,5 +34,12 @@ def require_session(creditlens_session: str | None = Cookie(default=None, alias=
     return payload
 
 
-def set_cookie(response: Response, token: str) -> None:
-    response.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=60 * 60 * 12)
+def set_cookie(response: Response, token: str, *, secure: bool = False) -> None:
+    response.set_cookie(
+        COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+        max_age=60 * 60 * 12,
+    )

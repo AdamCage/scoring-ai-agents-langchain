@@ -8,7 +8,7 @@ User=root
 WorkingDirectory=/opt/creditlens
 EnvironmentFile=/opt/creditlens/.env
 Environment=PYTHONPATH=/opt/creditlens:/opt/creditlens/backend/src
-ExecStart=/opt/creditlens/.venv/bin/uvicorn creditlens.main:app --host 127.0.0.1 --port 8010 --timeout-keep-alive 75
+ExecStart=/opt/creditlens/.venv/bin/uvicorn creditlens.main:app --host 127.0.0.1 --port 8010 --proxy-headers --forwarded-allow-ips=127.0.0.1 --timeout-keep-alive 75
 Restart=always
 RestartSec=3
 MemoryMax=700M

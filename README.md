@@ -12,7 +12,7 @@ ML считает score. SHAP объясняет. Hybrid RAG цитирует п
 - Локальная observability (SQLite traces). LangSmith/Langfuse — `NotConfigured`
 - Quality Lab и Architecture Explorer (те же `.mmd` / `.md`, что в `docs/`)
 - Один Docker-образ: FastAPI раздаёт `frontend/dist`
-- nginx на VM, TLS-заготовка на потом
+- nginx на VM: IP `:8080`, домен `https://credit-adamcage.ru` (Let's Encrypt, отдельный server_name)
 
 ## Быстрый старт
 
@@ -26,7 +26,7 @@ PYTHONPATH=.:backend/src uvicorn creditlens.main:app --app-dir backend/src --rel
 
 Demo-пароль по умолчанию: `creditlens-demo`.
 
-Откройте `http://127.0.0.1:8000` — Workbench, Architecture, Observability, Quality Lab.
+Откройте `http://127.0.0.1:8000` или `https://credit-adamcage.ru` — Workbench, Architecture, Observability, Quality Lab.
 
 ## Документация процессов
 
