@@ -30,3 +30,5 @@ def test_health_and_open_demo_flow():
     assert evals.status_code == 200
     assert "summary" in evals.json()
     assert "experiments" in evals.json()
+    assert "langsmith_experiment" in evals.json()
+    assert "langsmith_experiment" in payload

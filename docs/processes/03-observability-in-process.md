@@ -6,6 +6,6 @@
 - Span стартует до тела node и заканчивается после — duration это wall-clock.
 - Retrieval пишет события `vector`, `bm25`, `rrf`, `rerank`.
 - `CreditLensCallback` ловит LangChain LLM/tool callbacks.
-- LangSmith — тот же Observability protocol. Без ключа health = `ready_no_key`, не «выключено нарочно».
+- LangSmith tracing — тот же Observability protocol. Evaluation — отдельный `Client.evaluate()` (`creditlens-smoke` → `creditlens-hybrid-rerank-v1`). Без ключа health = `ready_no_key`, не «выключено нарочно».
 
 ![Trace viewer](../screenshots/ui/observability-lab.webp)

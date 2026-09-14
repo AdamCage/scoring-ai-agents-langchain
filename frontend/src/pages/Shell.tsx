@@ -51,15 +51,24 @@ export function Shell() {
             <div className="flex flex-wrap gap-1.5">
               <TechPill on>LangGraph</TechPill>
               <TechPill on>LangChain Agents</TechPill>
-              <TechPill on={langfuseOn}>Langfuse Tracing</TechPill>
-              <TechPill on={langfuseOn}>Langfuse Evals</TechPill>
-              <TechPill on={langsmithOn}>LangSmith adapter</TechPill>
+              <TechPill on={langfuseOn}>Langfuse Tracing + Datasets</TechPill>
+              <TechPill on={langsmithOn}>LangSmith Evaluation</TechPill>
               <TechPill on={Boolean(data?.llm_configured)}>RouterAI</TechPill>
             </div>
             <div className="flex gap-2">
               <button className="btn-yellow !px-3 !py-1.5 text-sm" onClick={() => navigate("/?showcase=1")}>
                 Run showcase
               </button>
+              {data?.langsmith_experiment?.url ? (
+                <a
+                  className="btn-ghost !px-3 !py-1.5 text-sm"
+                  href={data.langsmith_experiment.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open LangSmith Experiment ↗
+                </a>
+              ) : null}
               <a
                 className="btn-ghost !px-3 !py-1.5 text-sm"
                 href="https://github.com/adamcage/scoring-ai-agents-langchain"

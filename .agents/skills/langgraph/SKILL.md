@@ -1,7 +1,8 @@
 # LangGraph skill
 
 LangGraph owns the stateful workflow: branching, parallel SHAP/RAG, critic retry, HITL.
-LangChain `create_agent` owns tool use and structured output inside agent nodes.
+LangChain `create_agent` owns tool use and structured output inside the Risk Analyst node.
+The Policy / LLM Critic is `with_structured_output(Critique)` plus a deterministic guard — not an agent.
 
 ```bash
 python -m creditlens.agents.validate_graph

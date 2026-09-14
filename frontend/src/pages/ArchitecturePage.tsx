@@ -19,12 +19,12 @@ const STORY = [
   {
     n: "2",
     title: "LangChain Agents",
-    text: "create_agent внутри Risk Analyst: tools и structured RiskAnalysis. Critic — structured Critique.",
+    text: "Risk Analyst — LangChain create_agent, tools и structured RiskAnalysis. LLM Critic — structured Critique + deterministic guard, не агент.",
   },
   {
     n: "3",
     title: "Observability",
-    text: "Один protocol: SQLite для UI и Langfuse OSS для traces/evals. LangSmith — тот же адаптер.",
+    text: "Langfuse on-prem: traces и datasets. LangSmith — отдельный native evaluation workflow (dataset + Client.evaluate).",
   },
   {
     n: "4",
@@ -45,7 +45,7 @@ const NODES = [
   { name: "score", role: "CatBoost, неизменяемый" },
   { name: "explain", role: "SHAP + RAG параллельно" },
   { name: "risk_analysis", role: "LangChain agent" },
-  { name: "critic", role: "structured Critique" },
+  { name: "critic", role: "LLM Critic, не агент" },
   { name: "human_review", role: "LangGraph interrupt" },
 ];
 

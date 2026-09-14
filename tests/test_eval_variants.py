@@ -27,6 +27,27 @@ def test_bad_prompt_fails_citation_grounding():
     assert any("citation_grounding" in item for item in failed)
 
 
+def test_langsmith_eval_stays_ready_without_key():
+    from creditlens.evaluation.run_langsmith_eval import _grounding, _numeric, _trajectory, latest_experiment
+
+    outputs = {
+        "score": 0.42,
+        "scoring_score": 0.42,
+        "decision": "REVIEW",
+        "scoring_decision": "REVIEW",
+        "citations": ["SME Credit Policy → 4.2.3"],
+        "retrieved_citations": ["SME Credit Policy → 4.2.3", "Manual Review → 8.1"],
+        "node_trace": ["validate_application", "calculate_score", "synthesize"],
+    }
+    assert _numeric(outputs)["score"] == 1.0
+    assert _grounding(outputs)["score"] == 1.0
+    assert _trajectory(outputs)["score"] == 1.0
+    status = latest_experiment()
+    assert status["status"] in {"ready_no_key", "missing", "local_only", "uploaded", "error"}
+    if status["status"] == "ready_no_key":
+        assert not status.get("url")
+
+
 def test_health_does_not_claim_langsmith_disabled():
     from fastapi.testclient import TestClient
 

@@ -145,8 +145,10 @@ def _deterministic_analysis(
 @instrument("risk_analysis")
 def risk_analysis(state: CreditState) -> dict:
     analysis = run_risk_analyst(state)
+    ctx = get_run_context()
     return {
         "analysis": analysis,
+        "tool_calls": list(ctx.tool_calls) if ctx else list(state.get("tool_calls") or []),
         "node_trace": [*state.get("node_trace", []), "risk_analysis"],
     }
 

@@ -12,7 +12,8 @@ const METRIC_HELP: Record<string, string> = {
   mrr: "На какой позиции первый релевантный документ",
   scoring_consistency: "Повторный вызов CatBoost даёт тот же score",
   structured_output: "Решение и risk band в допустимых значениях",
-  required_tool_usage: "Граф вызвал scoring tool",
+  scoring_tool_called: "LangGraph прошёл calculate_score",
+  agent_tool_usage: "Risk Analyst вызвал get_score_explanation и search_credit_policy",
   trajectory_superset: "Траектория содержит обязательные узлы",
   numeric_consistency: "LLM не переписал PD и решение модели",
   expected_decision: "Решение совпало с эталоном кейса",
@@ -79,7 +80,7 @@ export function QualityPage() {
       <PageTitle
         kicker="Experiment Lab"
         title="Сломать retrieval и увидеть quality gate"
-        text="Фиксированные pipeline variants, не декоративное имя. Production gate смотрит только hybrid-rerank."
+        text="Фиксированные pipeline variants. Production gate: scoring=1, numeric=1, grounding≥0.95, Recall@5≥0.75, MRR≥0.65. Нет метрики — FAIL."
       />
 
       {metrics.length > 0 ? (
@@ -109,11 +110,22 @@ export function QualityPage() {
         <section className="tile mt-4 overflow-x-auto p-6">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-[17px] font-semibold">Сравнение вариантов</h2>
-            {evals.data?.langfuse_url ? (
-              <a className="text-sm underline" href={evals.data.langfuse_url} target="_blank" rel="noreferrer">
-                Open in Langfuse
-              </a>
-            ) : null}
+            <div className="flex gap-3">
+              {evals.data?.langfuse_url ? (
+                <a className="text-sm underline" href={evals.data.langfuse_url} target="_blank" rel="noreferrer">
+                  Open in Langfuse
+                </a>
+              ) : null}
+              {evals.data?.langsmith_experiment?.url ? (
+                <a className="text-sm underline" href={evals.data.langsmith_experiment.url} target="_blank" rel="noreferrer">
+                  Open LangSmith Experiment ↗
+                </a>
+              ) : (
+                <span className="text-xs text-muted">
+                  LangSmith Evaluation · {evals.data?.langsmith_experiment?.status || "ready_no_key"}
+                </span>
+              )}
+            </div>
           </div>
           <table className="w-full text-left text-sm">
             <thead className="text-xs text-muted">

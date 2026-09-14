@@ -31,8 +31,8 @@ const STEPS: { node: string; label: string; tech: string }[] = [
   { node: "calculate_score", label: "Скоринг", tech: "CatBoost" },
   { node: "explain_score", label: "SHAP", tech: "parallel" },
   { node: "retrieve_policy", label: "Hybrid RAG", tech: "vector+BM25" },
-  { node: "risk_analysis", label: "Risk Analyst", tech: "LangChain agent" },
-  { node: "policy_critic", label: "Policy Critic", tech: "LangChain agent" },
+  { node: "risk_analysis", label: "Risk Analyst", tech: "LangChain Agent · tools · structured output" },
+  { node: "policy_critic", label: "LLM Critic", tech: "structured output + deterministic guard" },
   { node: "synthesize", label: "Synthesis", tech: "deterministic" },
   { node: "human_review", label: "Human review", tech: "interrupt" },
   { node: "retrieve_more", label: "Ещё документы", tech: "HITL retry" },
@@ -215,7 +215,7 @@ export function WorkbenchPage() {
       <PageTitle
         kicker="Workbench"
         title="Разбор кредитной заявки"
-        text="CatBoost пишет score. LangGraph оркестрирует. LangChain-агенты вызывают tools и отдают structured output. HITL — настоящий interrupt/resume."
+        text="CatBoost пишет score. LangGraph оркестрирует. Risk Analyst — LangChain agent с tools. Critic — structured output + guard. HITL — настоящий interrupt/resume."
       />
 
       <div className="mb-5 grid gap-3 md:grid-cols-3">
@@ -414,12 +414,21 @@ export function WorkbenchPage() {
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-[17px] font-semibold">Risk Analyst</h3>
             <div className="flex gap-2">
-              <TechPill>LangChain create_agent</TechPill>
+              <TechPill>LangChain Agent · tools · structured output</TechPill>
               <TechPill>schema: RiskAnalysis</TechPill>
-              <TechPill>{`tools: ${tools.length || 4}`}</TechPill>
+              <TechPill>{`tools: ${tools.length}`}</TechPill>
             </div>
           </div>
           <p className="text-sm leading-6">{String(analysis.summary || rec.summary || "Агент ещё не отработал.")}</p>
+          {tools.length > 0 ? (
+            <ul className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
+              {tools.map((event, index) => (
+                <li key={`${event.data.name}-${index}`} className="rounded-full bg-canvas px-2.5 py-1 font-mono">
+                  {String(event.data.name || "tool")}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </section>
       ) : null}
 

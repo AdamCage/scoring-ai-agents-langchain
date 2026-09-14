@@ -1,16 +1,17 @@
 {
-  "run_id": "27e752e7-93d2-4bcd-944d-1cece1e202e3",
+  "run_id": "14692d2e-83bd-47fc-98f2-93542f369418",
   "experiment": "bad-prompt",
-  "started_at": "2026-09-14T19:22:15.276124Z",
-  "ended_at": "2026-09-14T19:22:15.408711Z",
+  "started_at": "2026-09-14T20:26:50.881746Z",
+  "ended_at": "2026-09-14T20:26:51.020412Z",
   "status": "ok",
   "summary": {
     "scoring_consistency": 1.0,
     "structured_output": 1.0,
-    "recall_at_5": 0.5555,
-    "mrr": 0.6528,
-    "citation_precision": 0.375,
-    "required_tool_usage": 1.0,
+    "recall_at_5": 0.9167,
+    "mrr": 0.8333,
+    "citation_precision": 0.3667,
+    "scoring_tool_called": 1.0,
+    "agent_tool_usage": 1.0,
     "trajectory_superset": 1.0,
     "numeric_consistency": 1.0,
     "citation_grounding": 0.0
@@ -182,7 +183,7 @@
       "case_id": "r1",
       "dataset": "rag_cases",
       "metric": "recall_at_5",
-      "score": 0.3333,
+      "score": 1.0,
       "passed": true,
       "comment": "",
       "details": {
@@ -190,12 +191,12 @@
           "sme_credit_policy",
           "general_credit_policy",
           "manual_review",
-          "working_capital"
+          "working_capital",
+          "scoring_methodology"
         ],
         "relevant": [
-          "exceptions",
-          "sme_limits",
-          "sme_credit_policy"
+          "sme_credit_policy",
+          "general_credit_policy"
         ],
         "mode": "hybrid-rerank"
       }
@@ -212,7 +213,8 @@
           "sme_credit_policy",
           "general_credit_policy",
           "manual_review",
-          "working_capital"
+          "working_capital",
+          "scoring_methodology"
         ],
         "mode": "hybrid-rerank"
       }
@@ -221,7 +223,7 @@
       "case_id": "r1-citation",
       "dataset": "rag_cases",
       "metric": "citation_precision",
-      "score": 0.25,
+      "score": 0.4,
       "passed": true,
       "comment": "",
       "details": {
@@ -232,7 +234,7 @@
       "case_id": "r2",
       "dataset": "rag_cases",
       "metric": "recall_at_5",
-      "score": 0.3333,
+      "score": 1.0,
       "passed": true,
       "comment": "",
       "details": {
@@ -240,12 +242,12 @@
           "sme_credit_policy",
           "general_credit_policy",
           "manual_review",
-          "scoring_methodology"
+          "scoring_methodology",
+          "sme_credit"
         ],
         "relevant": [
           "scoring_methodology",
-          "risk_bands",
-          "explainability_standard"
+          "general_credit_policy"
         ],
         "mode": "hybrid-rerank"
       }
@@ -254,7 +256,7 @@
       "case_id": "r2-mrr",
       "dataset": "rag_cases",
       "metric": "mrr",
-      "score": 0.25,
+      "score": 0.5,
       "passed": true,
       "comment": "",
       "details": {
@@ -262,7 +264,8 @@
           "sme_credit_policy",
           "general_credit_policy",
           "manual_review",
-          "scoring_methodology"
+          "scoring_methodology",
+          "sme_credit"
         ],
         "mode": "hybrid-rerank"
       }
@@ -271,7 +274,7 @@
       "case_id": "r2-citation",
       "dataset": "rag_cases",
       "metric": "citation_precision",
-      "score": 0.25,
+      "score": 0.4,
       "passed": true,
       "comment": "",
       "details": {
@@ -282,7 +285,7 @@
       "case_id": "r3",
       "dataset": "rag_cases",
       "metric": "recall_at_5",
-      "score": 0.3333,
+      "score": 1.0,
       "passed": true,
       "comment": "",
       "details": {
@@ -290,12 +293,12 @@
           "general_credit_policy",
           "sme_credit_policy",
           "manual_review",
-          "scoring_methodology"
+          "scoring_methodology",
+          "risk_bands"
         ],
         "relevant": [
-          "sme_credit",
-          "manual_review",
-          "borrower_requirements"
+          "general_credit_policy",
+          "manual_review"
         ],
         "mode": "hybrid-rerank"
       }
@@ -304,7 +307,7 @@
       "case_id": "r3-mrr",
       "dataset": "rag_cases",
       "metric": "mrr",
-      "score": 0.3333,
+      "score": 1.0,
       "passed": true,
       "comment": "",
       "details": {
@@ -312,7 +315,8 @@
           "general_credit_policy",
           "sme_credit_policy",
           "manual_review",
-          "scoring_methodology"
+          "scoring_methodology",
+          "risk_bands"
         ],
         "mode": "hybrid-rerank"
       }
@@ -321,7 +325,7 @@
       "case_id": "r3-citation",
       "dataset": "rag_cases",
       "metric": "citation_precision",
-      "score": 0.25,
+      "score": 0.4,
       "passed": true,
       "comment": "",
       "details": {
@@ -332,7 +336,7 @@
       "case_id": "r4",
       "dataset": "rag_cases",
       "metric": "recall_at_5",
-      "score": 0.6667,
+      "score": 1.0,
       "passed": true,
       "comment": "",
       "details": {
@@ -340,12 +344,12 @@
           "sme_credit_policy",
           "general_credit_policy",
           "working_capital",
-          "sme_credit"
+          "sme_credit",
+          "manual_review"
         ],
         "relevant": [
-          "sme_credit",
           "working_capital",
-          "sme_limits"
+          "general_credit_policy"
         ],
         "mode": "hybrid-rerank"
       }
@@ -354,7 +358,7 @@
       "case_id": "r4-mrr",
       "dataset": "rag_cases",
       "metric": "mrr",
-      "score": 0.3333,
+      "score": 0.5,
       "passed": true,
       "comment": "",
       "details": {
@@ -362,7 +366,8 @@
           "sme_credit_policy",
           "general_credit_policy",
           "working_capital",
-          "sme_credit"
+          "sme_credit",
+          "manual_review"
         ],
         "mode": "hybrid-rerank"
       }
@@ -371,7 +376,7 @@
       "case_id": "r4-citation",
       "dataset": "rag_cases",
       "metric": "citation_precision",
-      "score": 0.5,
+      "score": 0.4,
       "passed": true,
       "comment": "",
       "details": {
@@ -382,7 +387,7 @@
       "case_id": "r5",
       "dataset": "rag_cases",
       "metric": "recall_at_5",
-      "score": 0.6667,
+      "score": 0.5,
       "passed": true,
       "comment": "",
       "details": {
@@ -390,11 +395,11 @@
           "sme_credit_policy",
           "general_credit_policy",
           "manual_review",
-          "industry_overrides"
+          "industry_overrides",
+          "scoring_methodology"
         ],
         "relevant": [
           "risk_bands",
-          "industry_overrides",
           "sme_credit_policy"
         ],
         "mode": "hybrid-rerank"
@@ -412,7 +417,8 @@
           "sme_credit_policy",
           "general_credit_policy",
           "manual_review",
-          "industry_overrides"
+          "industry_overrides",
+          "scoring_methodology"
         ],
         "mode": "hybrid-rerank"
       }
@@ -421,8 +427,8 @@
       "case_id": "r5-citation",
       "dataset": "rag_cases",
       "metric": "citation_precision",
-      "score": 0.5,
-      "passed": true,
+      "score": 0.2,
+      "passed": false,
       "comment": "",
       "details": {
         "mode": "hybrid-rerank"
@@ -440,11 +446,12 @@
           "retail_credit_policy",
           "general_credit_policy",
           "manual_review",
-          "scoring_methodology"
+          "scoring_methodology",
+          "risk_bands"
         ],
         "relevant": [
-          "general_credit_policy",
-          "retail_credit_policy"
+          "retail_credit_policy",
+          "general_credit_policy"
         ],
         "mode": "hybrid-rerank"
       }
@@ -461,7 +468,8 @@
           "retail_credit_policy",
           "general_credit_policy",
           "manual_review",
-          "scoring_methodology"
+          "scoring_methodology",
+          "risk_bands"
         ],
         "mode": "hybrid-rerank"
       }
@@ -470,7 +478,7 @@
       "case_id": "r6-citation",
       "dataset": "rag_cases",
       "metric": "citation_precision",
-      "score": 0.5,
+      "score": 0.4,
       "passed": true,
       "comment": "",
       "details": {
@@ -480,7 +488,7 @@
     {
       "case_id": "alpha-low",
       "dataset": "agent_cases",
-      "metric": "required_tool_usage",
+      "metric": "scoring_tool_called",
       "score": 1.0,
       "passed": true,
       "comment": "",
@@ -2021,6 +2029,20 @@
           "policy_critic",
           "synthesize",
           "human_review"
+        ]
+      }
+    },
+    {
+      "case_id": "alpha-low-agent-tools",
+      "dataset": "agent_cases",
+      "metric": "agent_tool_usage",
+      "score": 1.0,
+      "passed": true,
+      "comment": "Risk Analyst called get_score_explanation + search_credit_policy",
+      "details": {
+        "tool_calls": [
+          "get_score_explanation",
+          "search_credit_policy"
         ]
       }
     },
@@ -3592,7 +3614,7 @@
     {
       "case_id": "beta-border",
       "dataset": "agent_cases",
-      "metric": "required_tool_usage",
+      "metric": "scoring_tool_called",
       "score": 1.0,
       "passed": true,
       "comment": "",
@@ -5133,6 +5155,20 @@
           "policy_critic",
           "synthesize",
           "human_review"
+        ]
+      }
+    },
+    {
+      "case_id": "beta-border-agent-tools",
+      "dataset": "agent_cases",
+      "metric": "agent_tool_usage",
+      "score": 1.0,
+      "passed": true,
+      "comment": "Risk Analyst called get_score_explanation + search_credit_policy",
+      "details": {
+        "tool_calls": [
+          "get_score_explanation",
+          "search_credit_policy"
         ]
       }
     },
