@@ -231,7 +231,7 @@ export function QualityPage() {
       <section className="tile mt-4 overflow-x-auto p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[17px] font-semibold">Кейсы</h2>
-          <TechPill>{results.length} EvalResult</TechPill>
+          <TechPill>{`${results.length} EvalResult`}</TechPill>
         </div>
         {results.length === 0 ? (
           <p className="text-sm text-muted">После прогона здесь будет таблица pass/fail по каждому кейсу.</p>
