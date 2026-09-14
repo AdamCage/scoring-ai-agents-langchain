@@ -14,4 +14,4 @@ flowchart LR
 
 Карточка всегда берёт `decision`, `score` и `risk_band` из `ScoringResult`. LLM пишет только текст.
 
-![Workbench](../screenshots/ui/workbench-desktop.png)
+![Workbench](../screenshots/ui/workbench-desktop.webp)

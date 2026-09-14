@@ -16,4 +16,4 @@
 - `creditlens.rag.retrieve.retrieve_policy`
 - `creditlens.llm.routerai.chat_model`
 
-![LangChain runtime](../screenshots/diagrams/langchain-runtime.png)
+![LangChain runtime](../screenshots/ui/architecture-langchain.webp)

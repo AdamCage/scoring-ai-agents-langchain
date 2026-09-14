@@ -13,4 +13,4 @@
 
 Quality Lab показывает overview и сравнение `baseline-rag` / `hybrid-rag` / `hybrid-rerank`.
 
-![Quality Lab](../screenshots/ui/quality-lab.png)
+![Quality Lab](../screenshots/ui/quality-lab.webp)

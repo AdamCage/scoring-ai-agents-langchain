@@ -10,4 +10,4 @@
 
 LangSmith и Langfuse адаптеры существуют как `NotConfigured`. Runtime: `OBSERVABILITY=local`.
 
-![Trace viewer](../screenshots/ui/observability-lab.png)
+![Trace viewer](../screenshots/ui/observability-lab.webp)
