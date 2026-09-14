@@ -54,7 +54,7 @@ EOF
   exit 4
 fi
 
-CERTBOT_ARGS=(certonly --webroot -w /var/www/certbot -d "${DOMAIN}" --agree-tos --non-interactive)
+CERTBOT_ARGS=(certonly --webroot -w /var/www/certbot --cert-name "${DOMAIN}" -d "${DOMAIN}" --agree-tos --non-interactive)
 if [[ -n "${EMAIL}" ]]; then
   CERTBOT_ARGS+=(--email "${EMAIL}")
 else
