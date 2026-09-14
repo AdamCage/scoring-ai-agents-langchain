@@ -7,10 +7,10 @@ from datetime import UTC, datetime
 from contracts.application import Application
 from contracts.evaluation import EvalResult, EvalRun
 
+from creditlens.agents.risk_agent import REQUIRED_AGENT_TOOLS
 from creditlens.agents.runner import run_analysis
 from creditlens.config import ROOT
 from creditlens.db import get_conn
-from creditlens.agents.risk_agent import REQUIRED_AGENT_TOOLS
 from creditlens.evaluation.judge import judge_recommendation
 from creditlens.evaluation.quality_gate import VARIANT_THRESHOLDS, evaluate_summary
 from creditlens.evaluation.variants import PRODUCTION_VARIANT, get_variant, list_variants

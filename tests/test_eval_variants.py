@@ -28,7 +28,12 @@ def test_bad_prompt_fails_citation_grounding():
 
 
 def test_langsmith_eval_stays_ready_without_key():
-    from creditlens.evaluation.run_langsmith_eval import _grounding, _numeric, _trajectory, latest_experiment
+    from creditlens.evaluation.run_langsmith_eval import (
+        _grounding,
+        _numeric,
+        _trajectory,
+        latest_experiment,
+    )
 
     outputs = {
         "score": 0.42,

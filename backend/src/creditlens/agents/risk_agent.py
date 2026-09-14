@@ -6,7 +6,12 @@ from contracts.recommendation import RiskAnalysis
 from contracts.state import CreditState
 
 from creditlens.agents.context import get_run_context
-from creditlens.agents.tools import bind_tool_state, risk_tools, search_credit_policy, get_score_explanation
+from creditlens.agents.tools import (
+    bind_tool_state,
+    get_score_explanation,
+    risk_tools,
+    search_credit_policy,
+)
 from creditlens.llm.routerai import chat_model, llm_available
 
 PROMPTS = Path(__file__).parent / "prompts"
