@@ -2,8 +2,6 @@ name: eval
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   smoke-eval:

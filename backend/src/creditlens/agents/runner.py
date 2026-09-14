@@ -1,44 +1,31 @@
 from __future__ import annotations
 
 import json
-import time
+import threading
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from contracts.application import Application
 from contracts.events import SSEEvent
 from contracts.state import CreditState
 
+from creditlens.agents.context import RunContext, _run_ctx, make_event
 from creditlens.agents.graph import get_graph
 from creditlens.agents.nodes import _top_shap
-from creditlens.db import get_conn
-from creditlens.observability.factory import get_observability
+from creditlens.db import DB_LOCK, get_conn
+from creditlens.observability.factory import get_observability, langchain_callbacks
+from creditlens.observability.langfuse import trace_url as langfuse_trace_url
 from creditlens.rag.retrieve import RAG_VERSION
 from creditlens.scoring.features import FEATURE_LABELS
 from creditlens.scoring.service import explain_application, load_metadata, score_application
 
-NODE_META = {
-    "validate_application": ("creditlens.agents.nodes.validate_application", "validate"),
-    "request_information": ("creditlens.agents.nodes.request_information", "needInfo"),
-    "calculate_score": ("creditlens.scoring.service.score_application", "scoreNode"),
-    "explain_score": ("creditlens.scoring.service.explain_application", "shapNode"),
-    "retrieve_policy": ("creditlens.rag.retrieve.retrieve_policy", "retrieveNode"),
-    "retrieve_more": ("creditlens.rag.retrieve.retrieve_policy", "moreRag"),
-    "risk_analysis": ("creditlens.agents.nodes.risk_analysis", "riskAgent"),
-    "policy_critic": ("creditlens.agents.nodes.policy_critic", "criticAgent"),
-    "synthesize": ("creditlens.agents.nodes.synthesize", "synthAgent"),
-    "human_review": ("creditlens.agents.nodes.human_review", "humanReview"),
-}
+HitlMode = Literal["interrupt", "auto"]
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
-def _event(event_type: str, run_id: str, node: str | None, data: dict[str, Any]) -> SSEEvent:
-    return SSEEvent(type=event_type, node=node, run_id=run_id, timestamp_ms=_now_ms(), data=data)  # type: ignore[arg-type]
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _jsonable(value: Any) -> Any:
@@ -52,13 +39,18 @@ def _jsonable(value: Any) -> Any:
 
 
 def _save_run(run_id: str, app: Application, state: dict[str, Any], status: str) -> None:
+    with DB_LOCK:
+        _save_run_unlocked(run_id, app, state, status)
+
+
+def _save_run_unlocked(run_id: str, app: Application, state: dict[str, Any], status: str) -> None:
     conn = get_conn()
     rec = state.get("recommendation")
     rec_json = rec.model_dump_json() if rec is not None and hasattr(rec, "model_dump_json") else (
         json.dumps(rec, ensure_ascii=False) if rec is not None else None
     )
     serializable = _jsonable(state)
-    now = datetime.now(UTC).isoformat()
+    now = _now().isoformat()
     existing = conn.execute("SELECT run_id FROM runs WHERE run_id=?", (run_id,)).fetchone()
     if existing:
         conn.execute(
@@ -90,9 +82,170 @@ def _save_run(run_id: str, app: Application, state: dict[str, Any], status: str)
     conn.commit()
 
 
-def run_analysis(app: Application, run_id: str | None = None) -> tuple[str, dict[str, Any], list[SSEEvent]]:
-    run_id = run_id or str(uuid.uuid4())
-    events: list[SSEEvent] = []
+def _plain(update: Any) -> dict[str, Any]:
+    if hasattr(update, "model_dump"):
+        return update.model_dump()
+    if isinstance(update, dict):
+        return update
+    return {}
+
+
+def _interrupt_data(update: Any) -> dict[str, Any]:
+    if isinstance(update, (list, tuple)):
+        items = list(update)
+    else:
+        items = [update]
+    if not items:
+        return {"reason": "human_review"}
+    first = items[0]
+    value = getattr(first, "value", first)
+    if isinstance(value, dict):
+        return value
+    if isinstance(first, dict):
+        return first
+    return {"reason": "human_review", "value": str(value)}
+
+
+def _done_payload(app: Application, state: dict[str, Any], status: str, ctx: RunContext) -> dict[str, Any]:
+    debug = state.get("retrieval_debug")
+    return {
+        "status": status,
+        "recommendation": state.get("recommendation").model_dump() if state.get("recommendation") else None,
+        "scoring": state.get("scoring").model_dump() if state.get("scoring") else None,
+        "shap": state.get("shap").model_dump() if state.get("shap") else None,
+        "documents": [doc.model_dump() for doc in state.get("retrieved_documents") or []],
+        "analysis": state.get("analysis").model_dump() if state.get("analysis") else None,
+        "critique": state.get("critique").model_dump() if state.get("critique") else None,
+        "node_trace": state.get("node_trace") or [],
+        "application": app.model_dump(),
+        "retrieval_debug": debug.model_dump() if debug is not None and hasattr(debug, "model_dump") else debug,
+        "langfuse_url": langfuse_trace_url(ctx.run_id),
+        "tool_calls": ctx.tool_calls,
+        "tokens": ctx.tokens,
+        "human_decision": state.get("human_decision"),
+        "interrupt_reason": state.get("interrupt_reason"),
+    }
+
+
+def _resume_command(decision: str) -> Any:
+    try:
+        from langgraph.types import Command
+
+        return Command(resume={"action": decision, "decision": decision})
+    except ImportError:
+        return None
+
+
+def _graph_config(run_id: str, trace_id: str) -> dict[str, Any]:
+    return {
+        "configurable": {"thread_id": run_id},
+        "callbacks": langchain_callbacks(trace_id, run_id),
+        "recursion_limit": 25,
+    }
+
+
+def _checkpoint(ctx: RunContext, app: Application, state: dict[str, Any], status: str) -> None:
+    state["tool_calls"] = list(ctx.tool_calls)
+    _save_run(ctx.run_id, app, state, status)
+
+
+def _run_graph(
+    ctx: RunContext,
+    app: Application,
+    payload: Any,
+    state: dict[str, Any],
+) -> None:
+    obs = get_observability()
+    graph = get_graph()
+    config = _graph_config(ctx.run_id, ctx.trace_id)
+    token = _run_ctx.set(ctx)
+    try:
+        for step in graph.stream(payload, config, stream_mode="updates"):
+            if not isinstance(step, dict):
+                continue
+            for node, update in step.items():
+                if node == "__interrupt__":
+                    data = _interrupt_data(update)
+                    snapshot = graph.get_state(config)
+                    if snapshot and snapshot.values:
+                        state.update(snapshot.values)
+                    _checkpoint(ctx, app, dict(state), "interrupt")
+                    ctx.emit(make_event("interrupt", ctx.run_id, "human_review", data))
+                    return
+                if isinstance(update, dict):
+                    state.update(update)
+        snapshot = graph.get_state(config)
+        if snapshot and snapshot.values:
+            state.update(snapshot.values)
+        if snapshot and snapshot.next:
+            rec = state.get("recommendation")
+            scoring = state.get("scoring")
+            data = {
+                "reason": "human_review",
+                "pd": scoring.pd if scoring is not None else None,
+                "score": scoring.score if scoring is not None else None,
+                "risk_band": scoring.risk_band if scoring is not None else None,
+                "decision": rec.decision if rec else None,
+            }
+            _checkpoint(ctx, app, dict(state), "interrupt")
+            ctx.emit(make_event("interrupt", ctx.run_id, "human_review", data))
+            return
+        status = "ok"
+        if state.get("interrupt_reason") == "validation":
+            status = "interrupt"
+            ctx.emit(make_event("interrupt", ctx.run_id, "request_information", {"reason": "validation"}))
+            ctx.emit(make_event("done", ctx.run_id, None, _done_payload(app, state, status, ctx)))
+            obs.end_span(ctx.parent_span_id)
+            obs.end_trace(ctx.trace_id, "ok")
+            _checkpoint(ctx, app, dict(state), status)
+            return
+        if state.get("interrupt_reason") == "human_review" and ctx.hitl == "interrupt":
+            rec = state.get("recommendation")
+            ctx.emit(
+                make_event(
+                    "interrupt",
+                    ctx.run_id,
+                    "human_review",
+                    {"reason": "human_review", "decision": rec.decision if rec else None},
+                )
+            )
+            _checkpoint(ctx, app, dict(state), "interrupt")
+            return
+        obs.end_span(ctx.parent_span_id)
+        obs.end_trace(ctx.trace_id, "ok")
+        _checkpoint(ctx, app, dict(state), status)
+        ctx.emit(make_event("done", ctx.run_id, None, _done_payload(app, state, status, ctx)))
+    except Exception as exc:
+        name = type(exc).__name__
+        if "Interrupt" in name:
+            rec = state.get("recommendation")
+            ctx.emit(
+                make_event(
+                    "interrupt",
+                    ctx.run_id,
+                    "human_review",
+                    {"reason": "human_review", "decision": rec.decision if rec else None, "error": str(exc)},
+                )
+            )
+            _checkpoint(ctx, app, dict(state), "interrupt")
+            return
+        obs.end_span(ctx.parent_span_id, status="error", error=str(exc))
+        obs.end_trace(ctx.trace_id, "error")
+        _checkpoint(ctx, app, dict(state), "error")
+        ctx.emit(make_event("error", ctx.run_id, None, {"message": str(exc)}))
+    finally:
+        _run_ctx.reset(token)
+        ctx.close()
+
+
+def _start_context(
+    app: Application,
+    run_id: str,
+    *,
+    hitl: HitlMode,
+    retrieval_mode: str,
+    prompt_version: str,
+) -> RunContext:
     obs = get_observability()
     meta = load_metadata()
     trace_id = obs.start_trace(
@@ -102,20 +255,11 @@ def run_analysis(app: Application, run_id: str | None = None) -> tuple[str, dict
             "application_id": app.application_id,
             "segment": app.segment,
             "model_version": meta.get("model_version", "catboost-v1"),
-            "prompt_version": "risk-v1",
+            "prompt_version": prompt_version,
             "rag_version": RAG_VERSION,
+            "retrieval_mode": retrieval_mode,
         },
     )
-    graph = get_graph()
-    state: CreditState = {
-        "application": app,
-        "retrieved_documents": [],
-        "node_trace": [],
-        "retrieval_attempts": 0,
-        "messages": [],
-    }
-    _save_run(run_id, app, dict(state), "running")
-
     parent = obs.start_span(
         trace_id,
         "langgraph.run",
@@ -123,119 +267,194 @@ def run_analysis(app: Application, run_id: str | None = None) -> tuple[str, dict
         code_path="creditlens.agents.graph.build_graph",
         mmd_node="langgraph-credit-flow",
     )
-    try:
-        for step in graph.stream(state, stream_mode="updates"):
-            for node, update in step.items():
-                code_path, mmd = NODE_META.get(node, (f"creditlens.agents.nodes.{node}", node))
-                events.append(_event("node_start", run_id, node, {"mmd_node": mmd, "code_path": code_path}))
-                span_id = obs.start_span(
-                    trace_id,
-                    node,
-                    parent_span_id=parent,
-                    kind="tool" if node in {"calculate_score", "explain_score", "retrieve_policy", "retrieve_more"} else "chain",
-                    attributes={"mmd_node": mmd},
-                    code_path=code_path,
-                    mmd_node=mmd,
-                )
-                if node in {"retrieve_policy", "retrieve_more"} and update.get("retrieval_debug"):
-                    debug = update["retrieval_debug"]
-                    obs.event(span_id, "vector", {"ids": debug.vector_ids})
-                    obs.event(span_id, "bm25", {"ids": debug.bm25_ids})
-                    obs.event(span_id, "rrf", {"ids": debug.fused_ids})
-                    obs.event(span_id, "rerank", {"ids": debug.reranked_ids})
-                    events.append(
-                        _event(
-                            "retrieval",
-                            run_id,
-                            node,
-                            {
-                                "vector": debug.vector_ids,
-                                "bm25": debug.bm25_ids,
-                                "rrf": debug.fused_ids,
-                                "rerank": debug.reranked_ids,
-                                "latency_ms": debug.latency_ms,
-                            },
-                        )
-                    )
-                if node == "calculate_score" and update.get("scoring"):
-                    events.append(_event("tool", run_id, node, update["scoring"].model_dump()))
-                state.update(update)
-                obs.end_span(span_id)
-                events.append(
-                    _event(
-                        "node_end",
-                        run_id,
-                        node,
-                        {
-                            "keys": list(update.keys()),
-                            "mmd_node": mmd,
-                        },
-                    )
-                )
-        status = "ok"
-        if state.get("interrupt_reason") == "validation":
-            status = "interrupt"
-            events.append(_event("interrupt", run_id, "request_information", {"reason": "validation"}))
-        elif state.get("recommendation") and state["recommendation"].requires_human_review:
-            events.append(
-                _event(
-                    "interrupt",
-                    run_id,
-                    "human_review",
-                    {"reason": "human_review", "decision": state["recommendation"].decision},
-                )
-            )
-        obs.end_span(parent)
-        obs.end_trace(trace_id, "ok")
-        _save_run(run_id, app, dict(state), status)
-        events.append(
-            _event(
-                "done",
-                run_id,
-                None,
-                {
-                    "status": status,
-                    "recommendation": state.get("recommendation").model_dump() if state.get("recommendation") else None,
-                    "scoring": state.get("scoring").model_dump() if state.get("scoring") else None,
-                    "shap": state.get("shap").model_dump() if state.get("shap") else None,
-                    "documents": [doc.model_dump() for doc in state.get("retrieved_documents") or []],
-                    "analysis": state.get("analysis").model_dump() if state.get("analysis") else None,
-                    "critique": state.get("critique").model_dump() if state.get("critique") else None,
-                    "node_trace": state.get("node_trace") or [],
-                    "application": app.model_dump(),
-                },
-            )
+    return RunContext(
+        run_id=run_id,
+        trace_id=trace_id,
+        parent_span_id=parent,
+        hitl=hitl,
+        retrieval_mode=retrieval_mode,
+        prompt_version=prompt_version,
+    )
+
+
+def stream_analysis(
+    app: Application | None = None,
+    run_id: str | None = None,
+    *,
+    hitl: HitlMode = "interrupt",
+    retrieval_mode: str = "hybrid-rerank",
+    prompt_version: str = "risk-v1",
+    resume: str | None = None,
+) -> Iterator[SSEEvent]:
+    if resume:
+        if not run_id:
+            raise ValueError("run_id required to resume")
+        stored = load_run(run_id)
+        if not stored:
+            raise ValueError("run not found")
+        app = Application.model_validate(stored["application"])
+        state = stored.get("state") or {}
+        obs = get_observability()
+        existing = obs.get_trace_by_run(run_id)
+        trace_id = existing.trace_id if existing else obs.start_trace(run_id, "creditlens.analyze", {})
+        parent = existing.spans[0].span_id if existing and existing.spans else obs.start_span(trace_id, "langgraph.run")
+        ctx = RunContext(
+            run_id=run_id,
+            trace_id=trace_id,
+            parent_span_id=parent,
+            hitl=hitl,
+            retrieval_mode=str(state.get("retrieval_mode") or retrieval_mode),
+            prompt_version=str(state.get("prompt_version") or prompt_version),
         )
-    except Exception as exc:
-        obs.end_span(parent, status="error", error=str(exc))
-        obs.end_trace(trace_id, "error")
-        _save_run(run_id, app, dict(state), "error")
-        events.append(_event("error", run_id, None, {"message": str(exc)}))
-        raise
-    return run_id, dict(state), events
+        command = _resume_command(resume)
+        payload: Any = command if command is not None else {"human_decision": resume}
+        if command is None:
+            graph = get_graph()
+            graph.update_state(_graph_config(run_id, trace_id), {"human_decision": resume})
+            payload = None
+        worker = threading.Thread(target=_run_graph, args=(ctx, app, payload, dict(state)), daemon=True)
+        worker.start()
+        while True:
+            event = ctx.events.get()
+            if event is None:
+                break
+            yield event
+        worker.join(timeout=30)
+        return
+
+    if app is None:
+        raise ValueError("application required")
+    run_id = run_id or str(uuid.uuid4())
+    ctx = _start_context(app, run_id, hitl=hitl, retrieval_mode=retrieval_mode, prompt_version=prompt_version)
+    state: CreditState = {
+        "application": app,
+        "retrieved_documents": [],
+        "node_trace": [],
+        "retrieval_attempts": 0,
+        "messages": [],
+        "retrieval_mode": retrieval_mode,
+        "prompt_version": prompt_version,
+        "tool_calls": [],
+    }
+    _save_run(run_id, app, dict(state), "running")
+    worker = threading.Thread(target=_run_graph, args=(ctx, app, state, dict(state)), daemon=True)
+    worker.start()
+    while True:
+        event = ctx.events.get()
+        if event is None:
+            break
+        yield event
+    worker.join(timeout=60)
 
 
-def iter_sse(app: Application, run_id: str | None = None) -> Iterator[str]:
-    _run_id, _state, events = run_analysis(app, run_id)
-    for event in events:
+def _hydrate_state(raw: dict[str, Any], app: Application | None = None) -> dict[str, Any]:
+    from contracts.rag import RetrievalDebug, RetrievedDocument
+    from contracts.recommendation import Critique, Recommendation, RiskAnalysis
+    from contracts.scoring import ScoringResult, ShapResult
+
+    state = dict(raw)
+    if app is not None:
+        state["application"] = app
+    if isinstance(state.get("scoring"), dict):
+        state["scoring"] = ScoringResult.model_validate(state["scoring"])
+    if isinstance(state.get("shap"), dict):
+        state["shap"] = ShapResult.model_validate(state["shap"])
+    if isinstance(state.get("analysis"), dict):
+        state["analysis"] = RiskAnalysis.model_validate(state["analysis"])
+    if isinstance(state.get("critique"), dict):
+        state["critique"] = Critique.model_validate(state["critique"])
+    if isinstance(state.get("recommendation"), dict):
+        state["recommendation"] = Recommendation.model_validate(state["recommendation"])
+    if isinstance(state.get("retrieval_debug"), dict):
+        state["retrieval_debug"] = RetrievalDebug.model_validate(state["retrieval_debug"])
+    docs = state.get("retrieved_documents") or []
+    if docs and isinstance(docs[0], dict):
+        state["retrieved_documents"] = [RetrievedDocument.model_validate(doc) for doc in docs]
+    return state
+
+
+def run_analysis(
+    app: Application,
+    run_id: str | None = None,
+    *,
+    hitl: HitlMode = "auto",
+    retrieval_mode: str = "hybrid-rerank",
+    prompt_version: str = "risk-v1",
+) -> tuple[str, dict[str, Any], list[SSEEvent]]:
+    events = list(
+        stream_analysis(
+            app,
+            run_id,
+            hitl=hitl,
+            retrieval_mode=retrieval_mode,
+            prompt_version=prompt_version,
+        )
+    )
+    resolved = events[0].run_id if events else (run_id or "")
+    done = next((event for event in events if event.type == "done"), None)
+    if done:
+        state = _hydrate_state(
+            {
+                "scoring": done.data.get("scoring"),
+                "shap": done.data.get("shap"),
+                "analysis": done.data.get("analysis"),
+                "critique": done.data.get("critique"),
+                "recommendation": done.data.get("recommendation"),
+                "retrieved_documents": done.data.get("documents"),
+                "retrieval_debug": done.data.get("retrieval_debug"),
+                "node_trace": done.data.get("node_trace") or [],
+                "human_decision": done.data.get("human_decision"),
+                "interrupt_reason": done.data.get("interrupt_reason"),
+                "tool_calls": done.data.get("tool_calls") or [],
+            },
+            app,
+        )
+        return resolved, state, events
+    stored = load_run(resolved)
+    state = _hydrate_state(stored["state"], app) if stored else {}
+    return resolved, state, events
+
+
+def iter_sse(
+    app: Application,
+    run_id: str | None = None,
+    *,
+    hitl: HitlMode = "interrupt",
+    retrieval_mode: str = "hybrid-rerank",
+    prompt_version: str = "risk-v1",
+) -> Iterator[str]:
+    for event in stream_analysis(
+        app,
+        run_id,
+        hitl=hitl,
+        retrieval_mode=retrieval_mode,
+        prompt_version=prompt_version,
+    ):
+        yield f"event: {event.type}\ndata: {event.model_dump_json()}\n\n"
+
+
+def iter_resume_sse(run_id: str, decision: str, comment: str = "") -> Iterator[str]:
+    apply_human_decision(run_id, decision, comment)
+    for event in stream_analysis(run_id=run_id, resume=decision, hitl="interrupt"):
         yield f"event: {event.type}\ndata: {event.model_dump_json()}\n\n"
 
 
 def load_run(run_id: str) -> dict[str, Any] | None:
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
-    if not row:
-        return None
-    return {
-        "run_id": row["run_id"],
-        "application_id": row["application_id"],
-        "status": row["status"],
-        "created_at": row["created_at"],
-        "application": json.loads(row["application_json"]),
-        "state": json.loads(row["state_json"]) if row["state_json"] else {},
-        "recommendation": json.loads(row["recommendation_json"]) if row["recommendation_json"] else None,
-        "human_decision": row["human_decision"],
-    }
+    with DB_LOCK:
+        conn = get_conn()
+        row = conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+        if not row:
+            return None
+        return {
+            "run_id": row["run_id"],
+            "application_id": row["application_id"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "application": json.loads(row["application_json"]),
+            "state": json.loads(row["state_json"]) if row["state_json"] else {},
+            "recommendation": json.loads(row["recommendation_json"]) if row["recommendation_json"] else None,
+            "human_decision": row["human_decision"],
+        }
 
 
 def list_runs(limit: int = 20) -> list[dict[str, Any]]:
@@ -254,13 +473,14 @@ def list_runs(limit: int = 20) -> list[dict[str, Any]]:
 
 
 def apply_human_decision(run_id: str, decision: str, comment: str = "") -> dict[str, Any] | None:
-    conn = get_conn()
-    now = datetime.now(UTC).isoformat()
-    conn.execute(
-        "UPDATE runs SET human_decision=?, status=?, updated_at=? WHERE run_id=?",
-        (json.dumps({"decision": decision, "comment": comment}, ensure_ascii=False), "reviewed", now, run_id),
-    )
-    conn.commit()
+    with DB_LOCK:
+        conn = get_conn()
+        now = datetime.now(UTC).isoformat()
+        conn.execute(
+            "UPDATE runs SET human_decision=?, status=?, updated_at=? WHERE run_id=?",
+            (json.dumps({"decision": decision, "comment": comment}, ensure_ascii=False), "reviewed", now, run_id),
+        )
+        conn.commit()
     return load_run(run_id)
 
 

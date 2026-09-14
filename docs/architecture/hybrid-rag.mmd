@@ -1,12 +1,11 @@
-flowchart TD
-  Query[Query_plus_metadata_filter]
-  Vector[Vector_Qdrant_or_local]
+flowchart LR
+  Query[query]
+  Filter[segment_filter]
+  Vector[Vector_in_memory]
   BM25[BM25]
-  RRF[RRF_fusion]
-  Rerank[Local_rerank]
-  Top[top_4]
-  LLM[RiskAnalyst]
-
-  Query --> Vector --> RRF
-  Query --> BM25 --> RRF
-  RRF --> Rerank --> Top --> LLM
+  RRF[RRF]
+  Rerank[local_rerank]
+  Query --> Filter --> Vector
+  Filter --> BM25
+  Vector --> RRF
+  BM25 --> RRF --> Rerank

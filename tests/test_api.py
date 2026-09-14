@@ -9,7 +9,11 @@ def test_health_and_open_demo_flow():
     client = TestClient(app)
     health = client.get("/api/health")
     assert health.status_code == 200
-    assert health.json()["status"] == "ok"
+    payload = health.json()
+    assert payload["status"] == "ok"
+    assert payload["langsmith"] in {"ready_no_key", "enabled"}
+    assert payload["langfuse"] in {"missing", "enabled"}
+    assert payload.get("vector_backend") == "in-memory"
     presets = client.get("/api/applications/presets")
     assert presets.status_code == 200
     assert len(presets.json()["presets"]) == 6
@@ -26,3 +30,5 @@ def test_health_and_open_demo_flow():
     assert evals.status_code == 200
     assert "summary" in evals.json()
     assert "experiments" in evals.json()
+    assert "langsmith_experiment" in evals.json()
+    assert "langsmith_experiment" in payload

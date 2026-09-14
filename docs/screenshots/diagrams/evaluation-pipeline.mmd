@@ -1,15 +1,7 @@
-flowchart TD
-  Datasets[evals_datasets_jsonl]
+flowchart LR
+  Variants[EvalVariant]
   Runner[run_evals]
-  Det[deterministic_metrics]
-  RAG[RAG_recall_MRR]
-  Traj[trajectory_superset]
+  Metrics[citation_grounding_recall]
   Gate[quality_gate]
-  Lab[QualityLab]
-
-  Datasets --> Runner
-  Runner --> Det
-  Runner --> RAG
-  Runner --> Traj
-  Runner --> Gate
-  Runner --> Lab
+  Deploy[release_deploy]
+  Variants --> Runner --> Metrics --> Gate --> Deploy

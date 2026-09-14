@@ -15,12 +15,16 @@ export type Health = {
   status: string;
   scoring_model: string;
   vector_index: string;
+  vector_backend?: string;
   knowledge_base: number;
   llm_provider: string;
   llm_configured: boolean;
   observability: string;
   langsmith: string;
   langfuse: string;
+  langsmith_url?: string | null;
+  langsmith_experiment?: { status: string; url?: string | null; experiment?: string; dataset?: string };
+  langfuse_url?: string | null;
   build: string;
   environment: string;
 };
@@ -65,6 +69,7 @@ export type SSEEvent = {
 
 export type SpanEvent = {
   name: string;
+  payload?: Record<string, unknown>;
 };
 
 export type Span = {
@@ -98,9 +103,27 @@ export type Experiment = {
   status: string;
 };
 
+export type EvalVariant = {
+  name: string;
+  retrieval: string;
+  reranker: boolean;
+  prompt: string;
+  expected_gate: "pass" | "fail";
+};
+
+export type VariantResult = {
+  summary: Record<string, number>;
+  gate: { passed: boolean; failed: string[] };
+  expected_gate: string;
+};
+
 export type EvalsResponse = {
   summary: Record<string, unknown>;
   experiments: Experiment[];
   gate: { passed: boolean; failed: string[] } | null;
   thresholds: Record<string, number>;
+  variants?: EvalVariant[];
+  latest_by_variant?: Record<string, VariantResult>;
+  langfuse_url?: string | null;
+  langsmith_experiment?: { status: string; url?: string | null; experiment?: string; dataset?: string };
 };

@@ -1,9 +1,11 @@
 flowchart LR
   Node[LangGraph_node]
   Callback[BaseCallbackHandler]
-  Span[spans_plus_events]
-  SQLite[SQLite]
-  API[GET_api_traces]
+  Local[SQLite_spans]
+  Langfuse[Langfuse_OSS]
+  LangSmith[LangSmith_Evaluation]
   UI[ObservabilityLab]
-
-  Node --> Callback --> Span --> SQLite --> API --> UI
+  Node --> Callback
+  Callback --> Local --> UI
+  Callback --> Langfuse
+  Callback --> LangSmith

@@ -10,6 +10,12 @@ from contracts.evaluation import EvalResult, EvalRun
 from creditlens.agents.runner import run_analysis
 from creditlens.config import ROOT
 from creditlens.db import get_conn
+from creditlens.agents.risk_agent import REQUIRED_AGENT_TOOLS
+from creditlens.evaluation.judge import judge_recommendation
+from creditlens.evaluation.quality_gate import VARIANT_THRESHOLDS, evaluate_summary
+from creditlens.evaluation.variants import PRODUCTION_VARIANT, get_variant, list_variants
+from creditlens.llm.routerai import llm_available
+from creditlens.observability.langfuse import public_url as langfuse_public_url
 from creditlens.presets import presets
 from creditlens.rag.retrieve import retrieve_policy
 from creditlens.scoring.service import score_application
@@ -59,7 +65,7 @@ def _scoring_cases() -> list[EvalResult]:
     return results
 
 
-def _rag_cases() -> list[EvalResult]:
+def _rag_cases(mode: str, smoke: bool) -> list[EvalResult]:
     results: list[EvalResult] = []
     cases = _load_jsonl("rag_cases.jsonl") or [
         {
@@ -69,9 +75,11 @@ def _rag_cases() -> list[EvalResult]:
         }
         for preset in presets()
     ]
+    if smoke:
+        cases = cases[:6]
     for case in cases:
         app = Application.model_validate(case["application"])
-        docs, _debug = retrieve_policy(app, extra_query=case.get("query", ""))
+        docs, _debug = retrieve_policy(app, extra_query=case.get("query", ""), mode=mode, top_k=5)
         retrieved = [doc.doc_id for doc in docs]
         relevant = set(case.get("relevant") or [])
         hit = len(relevant.intersection(retrieved))
@@ -88,8 +96,8 @@ def _rag_cases() -> list[EvalResult]:
                 dataset="rag_cases",
                 metric="recall_at_5",
                 score=round(recall, 4),
-                passed=recall >= 0.3,
-                details={"retrieved": retrieved, "relevant": list(relevant)},
+                passed=recall >= 0.5,
+                details={"retrieved": retrieved, "relevant": list(relevant), "mode": mode},
             )
         )
         results.append(
@@ -99,7 +107,7 @@ def _rag_cases() -> list[EvalResult]:
                 metric="mrr",
                 score=round(mrr, 4),
                 passed=mrr > 0,
-                details={"retrieved": retrieved},
+                details={"retrieved": retrieved, "mode": mode},
             )
         )
         results.append(
@@ -109,17 +117,23 @@ def _rag_cases() -> list[EvalResult]:
                 metric="citation_precision",
                 score=round(precision, 4),
                 passed=precision >= 0.25,
+                details={"mode": mode},
             )
         )
     return results
 
 
-def _agent_cases(smoke: bool) -> list[EvalResult]:
+def _agent_cases(smoke: bool, retrieval_mode: str, prompt_version: str) -> list[EvalResult]:
     results: list[EvalResult] = []
     items = presets()[:2] if smoke else presets()
     expected_prefix = ["validate_application", "calculate_score"]
     for preset in items:
-        _run_id, state, _events = run_analysis(preset.application)
+        _run_id, state, _events = run_analysis(
+            preset.application,
+            hitl="auto",
+            retrieval_mode=retrieval_mode,
+            prompt_version=prompt_version,
+        )
         trace = state.get("node_trace") or []
         has_score = "calculate_score" in trace
         prefix_ok = trace[:2] == expected_prefix or (
@@ -129,16 +143,34 @@ def _agent_cases(smoke: bool) -> list[EvalResult]:
         scoring = state.get("scoring")
         numeric_ok = bool(rec and scoring and rec.score == scoring.score and rec.decision == scoring.decision)
         citations = rec.citations if rec else []
-        docs = [doc.citation for doc in state.get("retrieved_documents") or []]
-        citation_ok = all(cite in docs for cite in citations)
+        retrieved_docs = state.get("retrieved_documents") or []
+        retrieved_citations = [doc.citation for doc in retrieved_docs]
+        citation_ok = all(cite in retrieved_citations for cite in citations)
+        tool_names = {
+            item.get("name")
+            for item in (state.get("tool_calls") or [])
+            if isinstance(item, dict) and item.get("name")
+        }
+        agent_ok = set(REQUIRED_AGENT_TOOLS).issubset(tool_names)
         results.append(
             EvalResult(
                 case_id=preset.id,
                 dataset="agent_cases",
-                metric="required_tool_usage",
+                metric="scoring_tool_called",
                 score=1.0 if has_score else 0.0,
                 passed=has_score,
                 details={"node_trace": trace},
+            )
+        )
+        results.append(
+            EvalResult(
+                case_id=f"{preset.id}-agent-tools",
+                dataset="agent_cases",
+                metric="agent_tool_usage",
+                score=1.0 if agent_ok else 0.0,
+                passed=agent_ok,
+                comment="Risk Analyst called get_score_explanation + search_credit_policy",
+                details={"tool_calls": sorted(tool_names)},
             )
         )
         results.append(
@@ -162,18 +194,33 @@ def _agent_cases(smoke: bool) -> list[EvalResult]:
         )
         results.append(
             EvalResult(
-                case_id=f"{preset.id}-faithfulness",
+                case_id=f"{preset.id}-grounding",
                 dataset="explanation_cases",
-                metric="faithfulness",
-                score=1.0 if citation_ok else 0.7,
+                metric="citation_grounding",
+                score=1.0 if citation_ok else 0.0,
                 passed=citation_ok,
                 comment="citations ⊆ retrieved documents",
             )
         )
+        if llm_available():
+            judged = judge_recommendation(rec, scoring, state.get("shap"), retrieved_docs)
+            if judged is not None:
+                score, comment = judged
+                results.append(
+                    EvalResult(
+                        case_id=f"{preset.id}-faithfulness",
+                        dataset="explanation_cases",
+                        metric="faithfulness",
+                        score=score,
+                        passed=score >= 0.9,
+                        comment=comment,
+                    )
+                )
     return results
 
 
 def run_evals(experiment: str = "hybrid-rerank", smoke: bool = False) -> EvalRun:
+    variant = get_variant(experiment)
     started = datetime.now(UTC)
     run_id = str(uuid.uuid4())
     results = _scoring_cases()
@@ -193,8 +240,10 @@ def run_evals(experiment: str = "hybrid-rerank", smoke: bool = False) -> EvalRun
                     details=scored.model_dump(),
                 )
             )
-    results.extend(_rag_cases() if not smoke else _rag_cases()[:6])
-    results.extend(_agent_cases(smoke=smoke))
+    results.extend(_rag_cases(mode=variant.retrieval, smoke=smoke))
+    results.extend(
+        _agent_cases(smoke=smoke, retrieval_mode=variant.retrieval, prompt_version=variant.prompt)
+    )
 
     by_metric: dict[str, list[float]] = {}
     for item in results:
@@ -203,14 +252,15 @@ def run_evals(experiment: str = "hybrid-rerank", smoke: bool = False) -> EvalRun
     ended = datetime.now(UTC)
     run = EvalRun(
         run_id=run_id,
-        experiment=experiment,
+        experiment=variant.name,
         started_at=started,
         ended_at=ended,
         status="ok",
         summary=summary,
         results=results,
-        rag_version="hybrid-v1",
-        prompt_version="risk-v1",
+        rag_version=f"{variant.retrieval}",
+        prompt_version=variant.prompt,
+        langfuse_url=langfuse_public_url(),
     )
     _persist(run)
     return run
@@ -273,13 +323,41 @@ def list_experiments() -> list[dict]:
     ]
 
 
-def latest_summary() -> dict:
+def latest_summary(experiment: str | None = None) -> dict:
     conn = get_conn()
-    row = conn.execute("SELECT * FROM eval_runs ORDER BY started_at DESC LIMIT 1").fetchone()
+    if experiment:
+        row = conn.execute(
+            "SELECT * FROM eval_runs WHERE experiment=? ORDER BY started_at DESC LIMIT 1",
+            (experiment,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM eval_runs WHERE experiment=? ORDER BY started_at DESC LIMIT 1",
+            (PRODUCTION_VARIANT,),
+        ).fetchone()
+        if not row:
+            row = conn.execute("SELECT * FROM eval_runs ORDER BY started_at DESC LIMIT 1").fetchone()
     if not row:
         return {}
     summary = json.loads(row["summary_json"])
     values = [value for value in summary.values() if isinstance(value, (int, float))]
     if values:
         summary["overall"] = round(sum(values) / len(values), 4)
+    summary["experiment"] = row["experiment"]
     return summary
+
+
+def latest_by_variant() -> dict[str, dict]:
+    payload = {}
+    for variant in list_variants():
+        summary = latest_summary(variant.name)
+        if not summary:
+            continue
+        thresholds = VARIANT_THRESHOLDS.get(variant.name)
+        passed, failed = evaluate_summary(summary, thresholds, llm_enabled="faithfulness" in summary)
+        payload[variant.name] = {
+            "summary": summary,
+            "gate": {"passed": passed, "failed": failed},
+            "expected_gate": variant.expected_gate,
+        }
+    return payload

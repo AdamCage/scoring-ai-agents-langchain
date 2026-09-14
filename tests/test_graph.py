@@ -25,4 +25,11 @@ def test_analyze_uses_scoring_tool():
     assert state["recommendation"].score == state["scoring"].score
     assert state["recommendation"].decision == state["scoring"].decision
     assert "calculate_score" in (state.get("node_trace") or [])
+    tool_names = {
+        item.get("name")
+        for item in (state.get("tool_calls") or [])
+        if isinstance(item, dict)
+    }
+    assert {"get_score_explanation", "search_credit_policy"}.issubset(tool_names)
     assert any(event.type == "done" for event in events)
+    assert any(event.type == "tool" and event.node == "risk_analysis" for event in events)

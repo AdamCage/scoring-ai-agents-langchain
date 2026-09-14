@@ -8,12 +8,12 @@ export function StatusPage() {
   const rows: [string, string][] = [
     ["API", data?.status ?? "—"],
     ["Модель скоринга", String(data?.scoring_model ?? "—")],
-    ["Векторный индекс", String(data?.vector_index ?? "—")],
+    ["Векторный индекс", String(data?.vector_backend ?? "in-memory")],
     ["База знаний", String(data?.knowledge_base ?? "—")],
     ["LLM", data?.llm_provider ?? "—"],
     ["Observability", data?.observability ?? "—"],
-    ["LangSmith", data?.langsmith ?? "—"],
     ["Langfuse", data?.langfuse ?? "—"],
+    ["LangSmith", data?.langsmith ?? "—"],
     ["Сборка", data?.build ?? "—"],
     ["Среда", data?.environment ?? "—"],
   ];
@@ -22,8 +22,8 @@ export function StatusPage() {
     <div>
       <PageTitle
         kicker="Статус"
-        title="Что включено в этом демо"
-        text="Короткий чеклист для интервью: модель, RAG, LLM и локальная observability."
+        title="Что включено на этом стенде"
+        text="Честный чеклист: модель, in-memory RAG, RouterAI, Langfuse traces/datasets и LangSmith Evaluation."
       />
       <ul className="tile divide-y divide-line">
         {rows.map(([label, value]) => (

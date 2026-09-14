@@ -1,18 +1,19 @@
 # CreditLens
 
-**CreditLens demonstrates how deterministic credit scoring, model explainability, RAG and agentic LLM workflows can be combined while keeping scoring decisions auditable, observable and continuously evaluated.**
+**Agentic Credit Scoring & LLM Evaluation Lab.** Deterministic ML scoring, explainability and banking policy RAG orchestrated with LangGraph. Every agent run is traced, evaluated and regression-tested before deployment.
 
-ML считает score. SHAP объясняет. Hybrid RAG цитирует политику. LangGraph-агенты анализируют. Локальные evals не пускают регресс. LLM **не имеет права** переписать `ScoringResult`.
+ML считает score. SHAP объясняет. Hybrid RAG цитирует политику. LangGraph оркестрирует workflow и HITL. LangChain-агенты вызывают tools. LLM **не имеет права** переписать `ScoringResult`.
 
 ## Что внутри
 
 - CatBoost + SHAP на синтетическом credit dataset
-- Hybrid RAG: metadata filter → vector + BM25 → RRF → local rerank
-- LangGraph: validation, scoring, SHAP, retrieval, risk analyst, policy critic, synthesizer, human review
-- Локальная observability (SQLite traces). LangSmith/Langfuse — `NotConfigured`
-- Quality Lab и Architecture Explorer (те же `.mmd` / `.md`, что в `docs/`)
+- Hybrid RAG: metadata filter → vector + BM25 → RRF → local rerank (in-memory index)
+- LangGraph: validation, scoring, параллельные SHAP/RAG, Risk Analyst, LLM Critic, synthesis, human interrupt
+- LangChain `create_agent` только в Risk Analyst: read-only tools + structured output. Critic — structured Critique + guard
+- Observability: локальные SQLite spans + self-hosted Langfuse OSS (traces/datasets). LangSmith — native Evaluation (`Client.evaluate()`), включается ключом
+- Experiment Lab: настоящие pipeline variants (`vector-only`, `hybrid`, `hybrid-rerank`, `bad-prompt`) и quality gate
 - Один Docker-образ: FastAPI раздаёт `frontend/dist`
-- nginx на VM: IP `:8080`, домен `https://credit-adamcage.ru` (Let's Encrypt, отдельный server_name)
+- nginx на VM: IP `:8080`, домен `https://credit-adamcage.ru`
 
 ## Быстрый старт
 
@@ -26,7 +27,15 @@ PYTHONPATH=.:backend/src uvicorn creditlens.main:app --app-dir backend/src --rel
 
 Авторизации нет — демо открывается сразу.
 
-Откройте `http://127.0.0.1:8000` или `https://credit-adamcage.ru` — Workbench, Architecture, Observability, Quality Lab.
+Откройте `http://127.0.0.1:8000` — Workbench, Architecture, Observability, Experiment Lab.
+
+Langfuse OSS:
+
+```bash
+docker compose up -d langfuse langfuse-db
+```
+
+UI: `http://127.0.0.1:3000` (demo@creditlens.local / creditlens-demo).
 
 ## Документация процессов
 

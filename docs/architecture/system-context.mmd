@@ -3,10 +3,10 @@ flowchart TB
   Browser[ReactWorkbench]
   Nginx[Nginx]
   App[FastAPI_LangGraph]
-  Qdrant[Qdrant]
   SQLite[SQLite_traces_evals]
+  Langfuse[Langfuse_OSS]
   RouterAI[RouterAI]
   Analyst --> Browser --> Nginx --> App
-  App --> Qdrant
   App --> SQLite
+  App --> Langfuse
   App --> RouterAI

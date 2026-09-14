@@ -13,40 +13,40 @@ mermaid.initialize({
 const STORY = [
   {
     n: "1",
-    title: "LangChain / LangGraph",
-    text: "Оркестратор — StateGraph. Узлы вызывают инструменты, а не «думают» вместо модели.",
+    title: "LangGraph",
+    text: "StateGraph держит бизнес-workflow: scoring, параллельные SHAP/RAG, retry, HITL interrupt.",
   },
   {
     n: "2",
-    title: "Tools",
-    text: "score_application, shap_explain, rag_retrieve — детерминированные функции с typed-контрактами.",
+    title: "LangChain Agents",
+    text: "Risk Analyst — LangChain create_agent, tools и structured RiskAnalysis. LLM Critic — structured Critique + deterministic guard, не агент.",
   },
   {
     n: "3",
     title: "Observability",
-    text: "Каждый узел пишет span в SQLite: тайминги, события, retrieval. Без SaaS.",
+    text: "Langfuse on-prem: traces и datasets. LangSmith — отдельный native evaluation workflow (dataset + Client.evaluate).",
   },
   {
     n: "4",
     title: "Evaluation",
-    text: "Локальный runner и quality gate: faithfulness, citation, score-integrity.",
+    text: "Настоящие pipeline variants. Quality gate смотрит hybrid-rerank перед deploy.",
   },
 ];
 
 const TABS = [
-  { id: "graph", label: "Граф", file: "langgraph-credit-flow.mmd", caption: "После скоринга SHAP и RAG идут параллельно. Critic может запросить ещё документы." },
-  { id: "runtime", label: "Runtime", file: "langchain-runtime.mmd", caption: "FastAPI → StateGraph → tools / LLM / callbacks → локальный tracer и SSE." },
-  { id: "obs", label: "Observability", file: "observability-pipeline.mmd", caption: "Callback пишет spans в SQLite. UI читает GET /api/traces." },
-  { id: "eval", label: "Evaluation", file: "evaluation-pipeline.mmd", caption: "Датасеты → runner → метрики → quality gate. Без LangSmith." },
+  { id: "graph", label: "Граф", file: "langgraph-credit-flow.mmd", caption: "После скоринга SHAP и RAG идут параллельно. Critic может запросить ещё документы. Human review — interrupt." },
+  { id: "runtime", label: "Runtime", file: "langchain-runtime.mmd", caption: "FastAPI → StateGraph → LangChain agents / tools / callbacks → SQLite + Langfuse и SSE." },
+  { id: "obs", label: "Observability", file: "observability-pipeline.mmd", caption: "Честные spans и dual-write в Langfuse." },
+  { id: "eval", label: "Evaluation", file: "evaluation-pipeline.mmd", caption: "Датасеты → variant runner → метрики → quality gate. Langfuse dataset — тот же контур." },
 ];
 
 const NODES = [
   { name: "validate", role: "проверка заявки" },
   { name: "score", role: "CatBoost, неизменяемый" },
   { name: "explain", role: "SHAP + RAG параллельно" },
-  { name: "risk_analysis", role: "LLM-агент" },
-  { name: "critic", role: "проверка цитат" },
-  { name: "synthesize", role: "черновик для человека" },
+  { name: "risk_analysis", role: "LangChain agent" },
+  { name: "critic", role: "LLM Critic, не агент" },
+  { name: "human_review", role: "LangGraph interrupt" },
 ];
 
 export function ArchitecturePage() {
@@ -85,7 +85,7 @@ export function ArchitecturePage() {
       <PageTitle
         kicker="LangChain"
         title="Как устроен граф"
-        text="Скоринг считает CatBoost. Агенты только объясняют. Это то, что нужно показать на собеседовании."
+        text="LangGraph оркестрирует. LangChain agent runtime вызывает tools. ScoringResult пишет только CatBoost."
       />
 
       <div className="grid gap-3 md:grid-cols-4">

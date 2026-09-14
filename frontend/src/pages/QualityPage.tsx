@@ -1,23 +1,32 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { EvalsResponse, Experiment, api } from "../api";
+import { EvalsResponse, EvalVariant, Experiment, api } from "../api";
 import { PageTitle, TechPill } from "../ui";
 
 const METRIC_HELP: Record<string, string> = {
   overall: "Среднее по метрикам последнего прогона",
-  faithfulness: "Цитаты ответа есть среди найденных чанков",
+  citation_grounding: "Цитаты ответа есть среди найденных чанков",
+  faithfulness: "LLM-as-a-Judge: факты опираются на score, SHAP или политику",
   citation_precision: "Доля релевантных документов в выдаче RAG",
   recall_at_5: "Сколько нужных документов попало в top-5",
   mrr: "На какой позиции первый релевантный документ",
   scoring_consistency: "Повторный вызов CatBoost даёт тот же score",
   structured_output: "Решение и risk band в допустимых значениях",
-  required_tool_usage: "Граф вызвал scoring tool",
+  scoring_tool_called: "LangGraph прошёл calculate_score",
+  agent_tool_usage: "Risk Analyst вызвал get_score_explanation и search_credit_policy",
   trajectory_superset: "Траектория содержит обязательные узлы",
   numeric_consistency: "LLM не переписал PD и решение модели",
   expected_decision: "Решение совпало с эталоном кейса",
 };
 
-const HIDDEN = new Set(["experiments", "latency_p50", "latency_p95"]);
+const HIDDEN = new Set(["experiments", "latency_p50", "latency_p95", "experiment"]);
+
+const DEFAULT_VARIANTS: EvalVariant[] = [
+  { name: "vector-only", retrieval: "vector", reranker: false, prompt: "risk-v1", expected_gate: "fail" },
+  { name: "hybrid", retrieval: "hybrid", reranker: false, prompt: "risk-v1", expected_gate: "pass" },
+  { name: "hybrid-rerank", retrieval: "hybrid-rerank", reranker: true, prompt: "risk-v1", expected_gate: "pass" },
+  { name: "bad-prompt", retrieval: "hybrid-rerank", reranker: true, prompt: "bad-prompt-demo", expected_gate: "fail" },
+];
 
 function formatMetric(key: string, value: unknown) {
   if (typeof value !== "number") return "—";
@@ -39,6 +48,8 @@ export function QualityPage() {
 
   const summary = evals.data?.summary || {};
   const experiments = evals.data?.experiments || [];
+  const variants = evals.data?.variants || DEFAULT_VARIANTS;
+  const byVariant = evals.data?.latest_by_variant || {};
   const metrics = Object.entries(summary).filter(([key, value]) => typeof value === "number" && !HIDDEN.has(key));
   const leftExp = experiments.find((item) => item.run_id === (left || experiments[0]?.run_id));
   const rightExp = experiments.find((item) => item.run_id === (right || experiments[1]?.run_id));
@@ -67,9 +78,9 @@ export function QualityPage() {
   return (
     <div>
       <PageTitle
-        kicker="Evaluation"
-        title="Качество ответа"
-        text="Локальный runner и quality gate. Интервьюеру сразу видно: цитаты, верность скору, hit-rate RAG."
+        kicker="Experiment Lab"
+        title="Сломать retrieval и увидеть quality gate"
+        text="Фиксированные pipeline variants. Production gate: scoring=1, numeric=1, grounding≥0.95, Recall@5≥0.75, MRR≥0.65. Нет метрики — FAIL."
       />
 
       {metrics.length > 0 ? (
@@ -84,34 +95,93 @@ export function QualityPage() {
         </div>
       ) : (
         <div className="tile px-6 py-10 text-sm text-muted">
-          Ещё нет прогона. Нажмите «Прогнать eval» — smoke занимает меньше минуты и не ходит в SaaS.
+          Ещё нет прогона production-варианта. Выберите hybrid-rerank и нажмите «Прогнать eval».
         </div>
       )}
 
       {evals.data?.gate ? (
         <div className={`tile mt-4 px-5 py-4 text-sm font-medium ${evals.data.gate.passed ? "text-ok" : "bg-red-50 text-bad"}`}>
-          Quality gate: {evals.data.gate.passed ? "пройден" : "не пройден"}
-          {evals.data.gate.failed.length ? ` · ${evals.data.gate.failed.join("; ")}` : " · scoring, citations, numeric integrity"}
+          Quality gate · hybrid-rerank: {evals.data.gate.passed ? "PASS" : "FAIL"}
+          {evals.data.gate.failed.length ? ` · ${evals.data.gate.failed.join("; ")}` : ""}
         </div>
+      ) : null}
+
+      {Object.keys(byVariant).length > 0 ? (
+        <section className="tile mt-4 overflow-x-auto p-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-[17px] font-semibold">Сравнение вариантов</h2>
+            <div className="flex gap-3">
+              {evals.data?.langfuse_url ? (
+                <a className="text-sm underline" href={evals.data.langfuse_url} target="_blank" rel="noreferrer">
+                  Open in Langfuse
+                </a>
+              ) : null}
+              {evals.data?.langsmith_experiment?.url ? (
+                <a className="text-sm underline" href={evals.data.langsmith_experiment.url} target="_blank" rel="noreferrer">
+                  Open LangSmith Experiment ↗
+                </a>
+              ) : (
+                <span className="text-xs text-muted">
+                  LangSmith Evaluation · {evals.data?.langsmith_experiment?.status || "ready_no_key"}
+                </span>
+              )}
+            </div>
+          </div>
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs text-muted">
+              <tr>
+                <th className="pb-2 font-medium">Experiment</th>
+                <th className="pb-2 font-medium">Recall@5</th>
+                <th className="pb-2 font-medium">Grounding</th>
+                <th className="pb-2 font-medium">Faithfulness</th>
+                <th className="pb-2 font-medium">Integrity</th>
+                <th className="pb-2 font-medium">Gate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {variants.map((variant) => {
+                const row = byVariant[variant.name];
+                const summaryRow = row?.summary || {};
+                return (
+                  <tr key={variant.name} className="border-t border-line">
+                    <td className="py-2 font-medium">{variant.name}</td>
+                    <td className="py-2">{formatMetric("recall_at_5", summaryRow.recall_at_5)}</td>
+                    <td className="py-2">{formatMetric("citation_grounding", summaryRow.citation_grounding)}</td>
+                    <td className="py-2">{formatMetric("faithfulness", summaryRow.faithfulness)}</td>
+                    <td className="py-2">{formatMetric("numeric_consistency", summaryRow.numeric_consistency)}</td>
+                    <td className={`py-2 font-semibold ${row?.gate.passed ? "text-ok" : "text-bad"}`}>
+                      {row ? (row.gate.passed ? "PASS" : "FAIL") : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
       ) : null}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <form className="tile p-6" onSubmit={onRun}>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-[17px] font-semibold">Новый эксперимент</h2>
-            <TechPill>локальный runner</TechPill>
+            <h2 className="text-[17px] font-semibold">Запустить вариант</h2>
+            <TechPill>меняет pipeline</TechPill>
           </div>
-          <label className="mt-4 block text-sm">
-            <span className="mb-1 block text-xs text-muted">Имя</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-          </label>
+          <fieldset className="mt-4 space-y-2">
+            {variants.map((variant) => (
+              <label key={variant.name} className="flex items-start gap-3 rounded-2xl bg-canvas px-3 py-3 text-sm">
+                <input type="radio" name="variant" checked={name === variant.name} onChange={() => setName(variant.name)} />
+                <span>
+                  <span className="font-medium">{variant.name}</span>
+                  <span className="mt-0.5 block text-xs text-muted">
+                    retrieval={variant.retrieval} · prompt={variant.prompt} · expected {variant.expected_gate.toUpperCase()}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
           <label className="mt-4 flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={smoke}
-              onChange={(e) => setSmoke(e.target.checked)}
-            />
-            Быстрый smoke: scoring, RAG и 2 агентных кейса
+            <input type="checkbox" checked={smoke} onChange={(e) => setSmoke(e.target.checked)} />
+            Быстрый smoke
           </label>
           <button className="btn mt-5" disabled={busy} type="submit">
             {busy ? "Считаю…" : "Прогнать eval"}

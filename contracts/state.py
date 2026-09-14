@@ -26,3 +26,6 @@ class CreditState(TypedDict, total=False):
     interrupt_reason: str | None
     human_decision: str | None
     what_if: dict[str, Any] | None
+    retrieval_mode: str
+    prompt_version: str
+    tool_calls: Annotated[list[dict[str, Any]], _extend_list]

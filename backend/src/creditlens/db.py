@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -117,14 +118,17 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 _CONN: sqlite3.Connection | None = None
+DB_LOCK = threading.Lock()
 
 
 def get_conn() -> sqlite3.Connection:
     global _CONN
     if _CONN is None:
-        _CONN = connect()
-        _CONN.executescript(SCHEMA)
-        _CONN.commit()
+        with DB_LOCK:
+            if _CONN is None:
+                _CONN = connect()
+                _CONN.executescript(SCHEMA)
+                _CONN.commit()
     return _CONN
 
 

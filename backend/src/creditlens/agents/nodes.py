@@ -2,15 +2,28 @@ from __future__ import annotations
 
 from contracts.application import Application, ValidationIssue, ValidationResult
 from contracts.rag import RetrievedDocument
-from contracts.recommendation import Critique, Recommendation, RiskAnalysis
+from contracts.recommendation import Recommendation, RiskAnalysis
 from contracts.scoring import ScoringResult, ShapResult
 from contracts.state import CreditState
 
-from creditlens.llm.routerai import chat_model, llm_available
+from creditlens.agents.context import get_run_context, instrument
+from creditlens.agents.critic_agent import run_policy_critic
+from creditlens.agents.risk_agent import run_risk_analyst
 from creditlens.rag.retrieve import retrieve_policy
 from creditlens.scoring.service import explain_application, score_application
 
 
+def _retrieval_mode(state: CreditState) -> str:
+    ctx = get_run_context()
+    return (ctx.retrieval_mode if ctx else None) or state.get("retrieval_mode") or "hybrid-rerank"
+
+
+def _prompt_version(state: CreditState) -> str:
+    ctx = get_run_context()
+    return (ctx.prompt_version if ctx else None) or state.get("prompt_version") or "risk-v1"
+
+
+@instrument("validate_application")
 def validate_application(state: CreditState) -> dict:
     app = state["application"]
     issues: list[ValidationIssue] = []
@@ -46,6 +59,7 @@ def validate_application(state: CreditState) -> dict:
     return payload
 
 
+@instrument("calculate_score")
 def calculate_score(state: CreditState) -> dict:
     scoring = score_application(state["application"])
     return {
@@ -54,6 +68,7 @@ def calculate_score(state: CreditState) -> dict:
     }
 
 
+@instrument("explain_score")
 def explain_score(state: CreditState) -> dict:
     shap = explain_application(state["application"])
     return {
@@ -62,22 +77,30 @@ def explain_score(state: CreditState) -> dict:
     }
 
 
-def retrieve_policy_node(state: CreditState) -> dict:
+def _do_retrieve(state: CreditState, node_name: str) -> dict:
     extra = ""
     critique = state.get("critique")
     if critique and not critique.acceptable:
         extra = " ".join(critique.issues + critique.missing_citations)
-    docs, debug = retrieve_policy(state["application"], extra_query=extra)
+    docs, debug = retrieve_policy(state["application"], extra_query=extra, mode=_retrieval_mode(state))
     return {
         "retrieved_documents": docs,
         "retrieval_debug": debug,
         "retrieval_attempts": int(state.get("retrieval_attempts") or 0) + 1,
-        "node_trace": [*state.get("node_trace", []), "retrieve_policy"],
+        "node_trace": [*state.get("node_trace", []), node_name],
     }
 
 
+@instrument("retrieve_policy")
+def retrieve_policy_node(state: CreditState) -> dict:
+    return _do_retrieve(state, "retrieve_policy")
+
+
+@instrument("retrieve_more")
 def retrieve_more(state: CreditState) -> dict:
-    return retrieve_policy_node(state)
+    result = _do_retrieve(state, "retrieve_more")
+    result["human_decision"] = None
+    return result
 
 
 def _top_shap(shap: ShapResult, sign: int, n: int = 3) -> list[str]:
@@ -90,7 +113,9 @@ def _top_shap(shap: ShapResult, sign: int, n: int = 3) -> list[str]:
     return labels
 
 
-def _deterministic_analysis(app: Application, scoring: ScoringResult, shap: ShapResult, docs: list[RetrievedDocument]) -> RiskAnalysis:
+def _deterministic_analysis(
+    app: Application, scoring: ScoringResult, shap: ShapResult, docs: list[RetrievedDocument]
+) -> RiskAnalysis:
     positives = _top_shap(shap, sign=-1)
     negatives = _top_shap(shap, sign=1)
     citations = [doc.citation for doc in docs[:4]]
@@ -117,66 +142,20 @@ def _deterministic_analysis(app: Application, scoring: ScoringResult, shap: Shap
     )
 
 
-def _try_llm(system: str, user: str) -> str | None:
-    if not llm_available():
-        return None
-    model = chat_model()
-    if model is None:
-        return None
-    try:
-        message = model.invoke([("system", system), ("human", user)])
-        return str(message.content)
-    except Exception:
-        return None
-
-
+@instrument("risk_analysis")
 def risk_analysis(state: CreditState) -> dict:
-    app = state["application"]
-    scoring = state["scoring"]
-    shap = state["shap"]
-    docs = state.get("retrieved_documents") or []
-    assert scoring is not None and shap is not None
-    llm_text = _try_llm(
-        "Ты риск-аналитик. Не меняй score. Ответь по-русски кратко.",
-        f"Заявка: {app.model_dump()}\nScore: {scoring.model_dump()}\nSHAP: {[f.model_dump() for f in shap.features[:8]]}\nDocs: {[d.citation for d in docs]}",
-    )
-    analysis = _deterministic_analysis(app, scoring, shap, docs)
-    if llm_text:
-        analysis.summary = llm_text[:1200]
+    analysis = run_risk_analyst(state)
+    ctx = get_run_context()
     return {
         "analysis": analysis,
+        "tool_calls": list(ctx.tool_calls) if ctx else list(state.get("tool_calls") or []),
         "node_trace": [*state.get("node_trace", []), "risk_analysis"],
     }
 
 
+@instrument("policy_critic")
 def policy_critic(state: CreditState) -> dict:
-    analysis = state.get("analysis")
-    docs = state.get("retrieved_documents") or []
-    shap = state.get("shap")
-    issues: list[str] = []
-    missing: list[str] = []
-    if not analysis:
-        issues.append("Нет анализа риск-аналитика")
-    if not docs:
-        missing.append("Нет извлечённых документов политики")
-    if analysis and not analysis.used_citations:
-        missing.append("Анализ не содержит цитат")
-    if shap and analysis:
-        known = {item.label for item in shap.features}
-        for factor in analysis.positive_factors + analysis.negative_factors:
-            if not any(label in factor for label in known):
-                issues.append(f"Фактор вне SHAP: {factor}")
-    acceptable = not issues and not missing
-    if int(state.get("retrieval_attempts") or 0) >= 2:
-        acceptable = True
-        if issues:
-            issues.append("Цикл retrieval исчерпан, critic принимает текущий пакет")
-    critique = Critique(
-        acceptable=acceptable,
-        issues=issues,
-        missing_citations=missing,
-        prompt_version="critic-v1",
-    )
+    critique = run_policy_critic(state)
     return {
         "critique": critique,
         "node_trace": [*state.get("node_trace", []), "policy_critic"],
@@ -198,6 +177,13 @@ def route_after_critic(state: CreditState) -> str:
     return "synthesize"
 
 
+def route_after_review(state: CreditState) -> str:
+    if state.get("human_decision") == "request_documents":
+        return "retrieve_more"
+    return "end"
+
+
+@instrument("request_information")
 def request_information(state: CreditState) -> dict:
     return {
         "interrupt_reason": "validation",
@@ -205,6 +191,7 @@ def request_information(state: CreditState) -> dict:
     }
 
 
+@instrument("synthesize")
 def synthesize(state: CreditState) -> dict:
     scoring = state["scoring"]
     analysis = state.get("analysis")
@@ -218,6 +205,9 @@ def synthesize(state: CreditState) -> dict:
         "REVIEW": "РУЧНОЕ РАССМОТРЕНИЕ",
         "DECLINE": "ОТКАЗ",
     }
+    citations = [doc.citation for doc in docs]
+    if _prompt_version(state) == "bad-prompt-demo":
+        citations = [*citations, "policy §99.9 (выдумано)"]
     recommendation = Recommendation(
         decision=scoring.decision,
         title=titles[scoring.decision],
@@ -227,7 +217,7 @@ def synthesize(state: CreditState) -> dict:
         confidence=confidence,  # type: ignore[arg-type]
         positive_factors=analysis.positive_factors if analysis else [],
         negative_factors=analysis.negative_factors if analysis else [],
-        citations=[doc.citation for doc in docs],
+        citations=citations,
         requires_human_review=requires_review,
         prompt_version="synth-v1",
     )
@@ -237,11 +227,60 @@ def synthesize(state: CreditState) -> dict:
     }
 
 
+def _resume_action(payload: object) -> str:
+    if isinstance(payload, str) and payload:
+        return payload
+    if isinstance(payload, dict):
+        return str(payload.get("action") or payload.get("decision") or "approve")
+    return "approve"
+
+
+@instrument("human_review")
 def human_review(state: CreditState) -> dict:
     rec = state.get("recommendation")
-    reason = "human_review" if rec and rec.requires_human_review else None
+    existing = state.get("human_decision")
+    if existing in {"approve", "reject", "auto-ack"}:
+        return {
+            "interrupt_reason": None,
+            "human_decision": existing,
+            "node_trace": [*state.get("node_trace", []), "human_review"],
+        }
+    needs = bool(rec and rec.requires_human_review)
+    ctx = get_run_context()
+    if not needs:
+        return {
+            "interrupt_reason": None,
+            "human_decision": existing or "auto-ack",
+            "node_trace": [*state.get("node_trace", []), "human_review"],
+        }
+    if ctx is not None and ctx.hitl == "auto":
+        return {
+            "interrupt_reason": None,
+            "human_decision": "auto-ack",
+            "node_trace": [*state.get("node_trace", []), "human_review"],
+        }
+    scoring = state.get("scoring")
+    payload = {
+        "reason": "human_review",
+        "pd": scoring.pd if scoring is not None else None,
+        "score": scoring.score if scoring is not None else None,
+        "risk_band": scoring.risk_band if scoring is not None else None,
+        "decision": rec.decision if rec else None,
+        "recommendation": rec.model_dump() if rec else None,
+    }
+    try:
+        from langgraph.types import interrupt
+
+        resumed = interrupt(payload)
+        action = _resume_action(resumed)
+    except ImportError:
+        return {
+            "interrupt_reason": "human_review",
+            "human_decision": None,
+            "node_trace": [*state.get("node_trace", []), "human_review"],
+        }
     return {
-        "interrupt_reason": reason,
-        "human_decision": state.get("human_decision") or ("auto-ack" if not reason else None),
+        "interrupt_reason": None,
+        "human_decision": action,
         "node_trace": [*state.get("node_trace", []), "human_review"],
     }
