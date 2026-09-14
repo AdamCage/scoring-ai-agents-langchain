@@ -11,7 +11,7 @@
 
 Слои:
 
-- детерминированные: `scoring_consistency`, `structured_output`, `numeric_consistency`, `required_tool_usage`
+- детерминированные: `scoring_consistency`, `structured_output`, `numeric_consistency`, `scoring_tool_called`, `agent_tool_usage`
 - RAG: Recall@5, MRR, citation precision
 - `citation_grounding`: цитаты ⊆ retrieved documents
 - `faithfulness`: LLM-as-a-Judge, только если есть RouterAI ключ

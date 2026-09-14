@@ -23,7 +23,7 @@ export function StatusPage() {
       <PageTitle
         kicker="Статус"
         title="Что включено на этом стенде"
-        text="Честный чеклист: модель, in-memory RAG, RouterAI, Langfuse OSS и слот LangSmith."
+        text="Честный чеклист: модель, in-memory RAG, RouterAI, Langfuse traces/datasets и LangSmith Evaluation."
       />
       <ul className="tile divide-y divide-line">
         {rows.map(([label, value]) => (

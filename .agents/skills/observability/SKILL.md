@@ -4,7 +4,7 @@ CreditLens dual-writes every LangGraph run:
 
 - local SQLite for the in-app Observability Lab
 - Langfuse OSS when `LANGFUSE_HOST` + project keys are set
-- LangSmith when `LANGSMITH_API_KEY` is set (same protocol, optional SaaS sink)
+- LangSmith when `LANGSMITH_API_KEY` is set: tracing adapter plus `Client.evaluate()` (`run_langsmith_eval.py`)
 
 ```bash
 python -m creditlens.observability.inspect_trace --limit 5

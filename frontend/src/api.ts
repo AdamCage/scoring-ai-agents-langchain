@@ -23,6 +23,7 @@ export type Health = {
   langsmith: string;
   langfuse: string;
   langsmith_url?: string | null;
+  langsmith_experiment?: { status: string; url?: string | null; experiment?: string; dataset?: string };
   langfuse_url?: string | null;
   build: string;
   environment: string;
@@ -124,4 +125,5 @@ export type EvalsResponse = {
   variants?: EvalVariant[];
   latest_by_variant?: Record<string, VariantResult>;
   langfuse_url?: string | null;
+  langsmith_experiment?: { status: string; url?: string | null; experiment?: string; dataset?: string };
 };

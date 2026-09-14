@@ -8,9 +8,9 @@ ML считает score. SHAP объясняет. Hybrid RAG цитирует п
 
 - CatBoost + SHAP на синтетическом credit dataset
 - Hybrid RAG: metadata filter → vector + BM25 → RRF → local rerank (in-memory index)
-- LangGraph: validation, scoring, параллельные SHAP/RAG, Risk Analyst, Policy Critic, synthesis, human interrupt
-- LangChain `create_agent` внутри agent nodes: read-only tools + structured output
-- Observability: локальные SQLite spans + self-hosted Langfuse OSS. LangSmith — тот же адаптер, включается ключом
+- LangGraph: validation, scoring, параллельные SHAP/RAG, Risk Analyst, LLM Critic, synthesis, human interrupt
+- LangChain `create_agent` только в Risk Analyst: read-only tools + structured output. Critic — structured Critique + guard
+- Observability: локальные SQLite spans + self-hosted Langfuse OSS (traces/datasets). LangSmith — native Evaluation (`Client.evaluate()`), включается ключом
 - Experiment Lab: настоящие pipeline variants (`vector-only`, `hybrid`, `hybrid-rerank`, `bad-prompt`) и quality gate
 - Один Docker-образ: FastAPI раздаёт `frontend/dist`
 - nginx на VM: IP `:8080`, домен `https://credit-adamcage.ru`

@@ -25,6 +25,7 @@ from creditlens.api.rate_limit import limit
 from creditlens.config import ROOT, get_settings
 from creditlens.db import init_db
 from creditlens.evaluation.quality_gate import THRESHOLDS, evaluate_summary
+from creditlens.evaluation.run_langsmith_eval import latest_experiment
 from creditlens.evaluation.runner import (
     latest_by_variant,
     latest_summary,
@@ -104,6 +105,7 @@ def health() -> dict:
         "langsmith": langsmith_status(),
         "langfuse": "enabled" if langfuse_available() else "missing",
         "langsmith_url": langsmith_public_url(),
+        "langsmith_experiment": latest_experiment(),
         "langfuse_url": langfuse_public_url(),
         "vector_backend": "in-memory",
         "build": settings.app_version,
@@ -247,7 +249,7 @@ def _evals_payload() -> dict:
     experiments = list_experiments()
     gate = None
     if summary:
-        passed, failed = evaluate_summary(summary)
+        passed, failed = evaluate_summary(summary, llm_enabled="faithfulness" in summary)
         gate = {"passed": passed, "failed": failed}
     return {
         "summary": summary,
@@ -257,6 +259,7 @@ def _evals_payload() -> dict:
         "variants": [item.model_dump() for item in list_variants()],
         "latest_by_variant": latest_by_variant(),
         "langfuse_url": langfuse_public_url(),
+        "langsmith_experiment": latest_experiment(),
     }
 
 

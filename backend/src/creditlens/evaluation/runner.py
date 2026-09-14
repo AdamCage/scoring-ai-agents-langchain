@@ -10,6 +10,7 @@ from contracts.evaluation import EvalResult, EvalRun
 from creditlens.agents.runner import run_analysis
 from creditlens.config import ROOT
 from creditlens.db import get_conn
+from creditlens.agents.risk_agent import REQUIRED_AGENT_TOOLS
 from creditlens.evaluation.judge import judge_recommendation
 from creditlens.evaluation.quality_gate import VARIANT_THRESHOLDS, evaluate_summary
 from creditlens.evaluation.variants import PRODUCTION_VARIANT, get_variant, list_variants
@@ -78,7 +79,7 @@ def _rag_cases(mode: str, smoke: bool) -> list[EvalResult]:
         cases = cases[:6]
     for case in cases:
         app = Application.model_validate(case["application"])
-        docs, _debug = retrieve_policy(app, extra_query=case.get("query", ""), mode=mode)
+        docs, _debug = retrieve_policy(app, extra_query=case.get("query", ""), mode=mode, top_k=5)
         retrieved = [doc.doc_id for doc in docs]
         relevant = set(case.get("relevant") or [])
         hit = len(relevant.intersection(retrieved))
@@ -95,7 +96,7 @@ def _rag_cases(mode: str, smoke: bool) -> list[EvalResult]:
                 dataset="rag_cases",
                 metric="recall_at_5",
                 score=round(recall, 4),
-                passed=recall >= 0.3,
+                passed=recall >= 0.5,
                 details={"retrieved": retrieved, "relevant": list(relevant), "mode": mode},
             )
         )
@@ -142,16 +143,34 @@ def _agent_cases(smoke: bool, retrieval_mode: str, prompt_version: str) -> list[
         scoring = state.get("scoring")
         numeric_ok = bool(rec and scoring and rec.score == scoring.score and rec.decision == scoring.decision)
         citations = rec.citations if rec else []
-        docs = [doc.citation for doc in state.get("retrieved_documents") or []]
-        citation_ok = all(cite in docs for cite in citations)
+        retrieved_docs = state.get("retrieved_documents") or []
+        retrieved_citations = [doc.citation for doc in retrieved_docs]
+        citation_ok = all(cite in retrieved_citations for cite in citations)
+        tool_names = {
+            item.get("name")
+            for item in (state.get("tool_calls") or [])
+            if isinstance(item, dict) and item.get("name")
+        }
+        agent_ok = set(REQUIRED_AGENT_TOOLS).issubset(tool_names)
         results.append(
             EvalResult(
                 case_id=preset.id,
                 dataset="agent_cases",
-                metric="required_tool_usage",
+                metric="scoring_tool_called",
                 score=1.0 if has_score else 0.0,
                 passed=has_score,
                 details={"node_trace": trace},
+            )
+        )
+        results.append(
+            EvalResult(
+                case_id=f"{preset.id}-agent-tools",
+                dataset="agent_cases",
+                metric="agent_tool_usage",
+                score=1.0 if agent_ok else 0.0,
+                passed=agent_ok,
+                comment="Risk Analyst called get_score_explanation + search_credit_policy",
+                details={"tool_calls": sorted(tool_names)},
             )
         )
         results.append(
@@ -184,7 +203,7 @@ def _agent_cases(smoke: bool, retrieval_mode: str, prompt_version: str) -> list[
             )
         )
         if llm_available():
-            judged = judge_recommendation(rec, scoring, docs)
+            judged = judge_recommendation(rec, scoring, state.get("shap"), retrieved_docs)
             if judged is not None:
                 score, comment = judged
                 results.append(
@@ -335,7 +354,7 @@ def latest_by_variant() -> dict[str, dict]:
         if not summary:
             continue
         thresholds = VARIANT_THRESHOLDS.get(variant.name)
-        passed, failed = evaluate_summary(summary, thresholds)
+        passed, failed = evaluate_summary(summary, thresholds, llm_enabled="faithfulness" in summary)
         payload[variant.name] = {
             "summary": summary,
             "gate": {"passed": passed, "failed": failed},

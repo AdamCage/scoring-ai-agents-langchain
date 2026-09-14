@@ -98,7 +98,7 @@ def _to_document(
 def retrieve_policy(
     app: Application,
     extra_query: str = "",
-    top_k: int = 4,
+    top_k: int = 5,
     mode: RetrievalMode | str = "hybrid-rerank",
 ) -> tuple[list[RetrievedDocument], RetrievalDebug]:
     docs, vectors, bm25, _tokens = _index()

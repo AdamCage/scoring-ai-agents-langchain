@@ -30,7 +30,7 @@ export function ObservabilityPage() {
       <PageTitle
         kicker="Observability"
         title="Что произошло в этом прогоне"
-        text="Локальные spans в SQLite — демо-лента. Тот же run уходит в Langfuse OSS, если сервис поднят. LangSmith — тот же адаптер, включается ключом."
+        text="Локальные spans в SQLite — демо-лента. Langfuse OSS — on-prem traces и datasets. LangSmith — native evaluation, если задан ключ."
       />
 
       <div className="grid gap-3 md:grid-cols-4">
@@ -48,12 +48,16 @@ export function ObservabilityPage() {
         ) : (
           <span className="text-muted">Langfuse URL появится, когда заданы HOST и ключи проекта.</span>
         )}
-        {health.data?.langsmith_url ? (
+        {health.data?.langsmith_experiment?.url ? (
+          <a className="underline" href={health.data.langsmith_experiment.url} target="_blank" rel="noreferrer">
+            Open LangSmith Experiment ↗
+          </a>
+        ) : health.data?.langsmith_url ? (
           <a className="underline" href={health.data.langsmith_url} target="_blank" rel="noreferrer">
             Open LangSmith
           </a>
         ) : (
-          <span className="text-muted">LangSmith adapter готов, ключ не задан.</span>
+          <span className="text-muted">LangSmith Evaluation готов, ключ не задан — status ready_no_key.</span>
         )}
       </div>
 

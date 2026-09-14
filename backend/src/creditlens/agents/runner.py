@@ -144,6 +144,11 @@ def _graph_config(run_id: str, trace_id: str) -> dict[str, Any]:
     }
 
 
+def _checkpoint(ctx: RunContext, app: Application, state: dict[str, Any], status: str) -> None:
+    state["tool_calls"] = list(ctx.tool_calls)
+    _save_run(ctx.run_id, app, state, status)
+
+
 def _run_graph(
     ctx: RunContext,
     app: Application,
@@ -164,7 +169,7 @@ def _run_graph(
                     snapshot = graph.get_state(config)
                     if snapshot and snapshot.values:
                         state.update(snapshot.values)
-                    _save_run(ctx.run_id, app, dict(state), "interrupt")
+                    _checkpoint(ctx, app, dict(state), "interrupt")
                     ctx.emit(make_event("interrupt", ctx.run_id, "human_review", data))
                     return
                 if isinstance(update, dict):
@@ -182,7 +187,7 @@ def _run_graph(
                 "risk_band": scoring.risk_band if scoring is not None else None,
                 "decision": rec.decision if rec else None,
             }
-            _save_run(ctx.run_id, app, dict(state), "interrupt")
+            _checkpoint(ctx, app, dict(state), "interrupt")
             ctx.emit(make_event("interrupt", ctx.run_id, "human_review", data))
             return
         status = "ok"
@@ -192,7 +197,7 @@ def _run_graph(
             ctx.emit(make_event("done", ctx.run_id, None, _done_payload(app, state, status, ctx)))
             obs.end_span(ctx.parent_span_id)
             obs.end_trace(ctx.trace_id, "ok")
-            _save_run(ctx.run_id, app, dict(state), status)
+            _checkpoint(ctx, app, dict(state), status)
             return
         if state.get("interrupt_reason") == "human_review" and ctx.hitl == "interrupt":
             rec = state.get("recommendation")
@@ -204,11 +209,11 @@ def _run_graph(
                     {"reason": "human_review", "decision": rec.decision if rec else None},
                 )
             )
-            _save_run(ctx.run_id, app, dict(state), "interrupt")
+            _checkpoint(ctx, app, dict(state), "interrupt")
             return
         obs.end_span(ctx.parent_span_id)
         obs.end_trace(ctx.trace_id, "ok")
-        _save_run(ctx.run_id, app, dict(state), status)
+        _checkpoint(ctx, app, dict(state), status)
         ctx.emit(make_event("done", ctx.run_id, None, _done_payload(app, state, status, ctx)))
     except Exception as exc:
         name = type(exc).__name__
@@ -222,11 +227,11 @@ def _run_graph(
                     {"reason": "human_review", "decision": rec.decision if rec else None, "error": str(exc)},
                 )
             )
-            _save_run(ctx.run_id, app, dict(state), "interrupt")
+            _checkpoint(ctx, app, dict(state), "interrupt")
             return
         obs.end_span(ctx.parent_span_id, status="error", error=str(exc))
         obs.end_trace(ctx.trace_id, "error")
-        _save_run(ctx.run_id, app, dict(state), "error")
+        _checkpoint(ctx, app, dict(state), "error")
         ctx.emit(make_event("error", ctx.run_id, None, {"message": str(exc)}))
     finally:
         _run_ctx.reset(token)
@@ -400,6 +405,7 @@ def run_analysis(
                 "node_trace": done.data.get("node_trace") or [],
                 "human_decision": done.data.get("human_decision"),
                 "interrupt_reason": done.data.get("interrupt_reason"),
+                "tool_calls": done.data.get("tool_calls") or [],
             },
             app,
         )
