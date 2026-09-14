@@ -39,31 +39,8 @@ jobs:
         env:
           PYTHONPATH: ".:backend/src"
 
-  deploy:
+  gate:
     needs: eval
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
-      - name: Push
-        if: ${{ secrets.VM_HOST != '' }}
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
-      - name: SSH compose pull
-        if: ${{ secrets.VM_HOST != '' }}
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
-          script: |
-            cd /opt/creditlens
-            export CREDITLENS_IMAGE=ghcr.io/${{ github.repository }}:${{ github.sha }}
-            docker compose -f deploy/compose/docker-compose.yml pull
-            docker compose -f deploy/compose/docker-compose.yml up -d
-            curl -fsS http://127.0.0.1:8000/api/health
+      - run: echo "test and hybrid-rerank quality gate passed; production is systemd/rsync, not GHCR compose"
