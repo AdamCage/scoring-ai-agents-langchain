@@ -113,7 +113,10 @@ class RunContext:
                 )
             )
         if span_id:
-            obs.end_span(span_id, status=status, error=error)
+            obs_status = "ok" if status == "interrupt" else status
+            obs.end_span(span_id, status=obs_status, error=error)
+            if status == "interrupt":
+                obs.event(span_id, "interrupt", {"node": node})
         code_path, mmd = NODE_META.get(node, (f"creditlens.agents.nodes.{node}", node))
         self.emit(
             make_event(

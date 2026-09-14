@@ -18,6 +18,10 @@ def _iso(value: datetime) -> str:
     return value.isoformat()
 
 
+def _span_status(value: str | None) -> str:
+    return value if value in {"running", "ok", "error"} else "ok"
+
+
 class LocalObservability:
     name = "local"
 
@@ -72,6 +76,7 @@ class LocalObservability:
         return span_id
 
     def end_span(self, span_id: str, status: str = "ok", error: str | None = None) -> None:
+        status = _span_status(status)
         with DB_LOCK:
             conn = get_conn()
             row = conn.execute("SELECT started_at FROM spans WHERE span_id=?", (span_id,)).fetchone()
@@ -184,7 +189,7 @@ class LocalObservability:
                     parent_span_id=span["parent_span_id"],
                     name=span["name"],
                     kind=span["kind"],
-                    status=span["status"],
+                    status=_span_status(span["status"]),
                     started_at=datetime.fromisoformat(span["started_at"]),
                     ended_at=datetime.fromisoformat(span["ended_at"]) if span["ended_at"] else None,
                     duration_ms=span["duration_ms"],
@@ -202,7 +207,7 @@ class LocalObservability:
             started_at=datetime.fromisoformat(row["started_at"]),
             ended_at=datetime.fromisoformat(row["ended_at"]) if row["ended_at"] else None,
             duration_ms=row["duration_ms"],
-            status=row["status"],
+            status=_span_status(row["status"]),
             metadata=json.loads(row["metadata_json"]),
             spans=spans,
         )
