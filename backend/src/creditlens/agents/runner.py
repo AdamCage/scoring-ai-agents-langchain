@@ -91,13 +91,18 @@ def _plain(update: Any) -> dict[str, Any]:
 
 
 def _interrupt_data(update: Any) -> dict[str, Any]:
-    items = update if isinstance(update, list) else [update]
+    if isinstance(update, (list, tuple)):
+        items = list(update)
+    else:
+        items = [update]
     if not items:
         return {"reason": "human_review"}
     first = items[0]
     value = getattr(first, "value", first)
     if isinstance(value, dict):
         return value
+    if isinstance(first, dict):
+        return first
     return {"reason": "human_review", "value": str(value)}
 
 
@@ -169,10 +174,12 @@ def _run_graph(
             state.update(snapshot.values)
         if snapshot and snapshot.next:
             rec = state.get("recommendation")
+            scoring = state.get("scoring")
             data = {
                 "reason": "human_review",
-                "pd": state["scoring"].pd if state.get("scoring") else None,
-                "risk_band": state["scoring"].risk_band if state.get("scoring") else None,
+                "pd": scoring.pd if scoring is not None else None,
+                "score": scoring.score if scoring is not None else None,
+                "risk_band": scoring.risk_band if scoring is not None else None,
                 "decision": rec.decision if rec else None,
             }
             _save_run(ctx.run_id, app, dict(state), "interrupt")

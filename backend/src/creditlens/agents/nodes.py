@@ -257,10 +257,12 @@ def human_review(state: CreditState) -> dict:
             "human_decision": "auto-ack",
             "node_trace": [*state.get("node_trace", []), "human_review"],
         }
+    scoring = state.get("scoring")
     payload = {
         "reason": "human_review",
-        "pd": state["scoring"].pd if state.get("scoring") else None,
-        "risk_band": state["scoring"].risk_band if state.get("scoring") else None,
+        "pd": scoring.pd if scoring is not None else None,
+        "score": scoring.score if scoring is not None else None,
+        "risk_band": scoring.risk_band if scoring is not None else None,
         "decision": rec.decision if rec else None,
         "recommendation": rec.model_dump() if rec else None,
     }

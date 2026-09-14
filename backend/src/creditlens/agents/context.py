@@ -137,6 +137,11 @@ class RunContext:
         self.emit(make_event("tool", self.run_id, "risk_analysis", item))
 
 
+def _is_graph_interrupt(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    return "Interrupt" in name
+
+
 def instrument(node: str):
     def decorator(fn):
         def wrapped(state):
@@ -149,7 +154,8 @@ def instrument(node: str):
                 return result
             except Exception as exc:
                 if ctx and key:
-                    ctx.finish_node(key, node, {}, status="error", error=str(exc))
+                    status = "interrupt" if _is_graph_interrupt(exc) else "error"
+                    ctx.finish_node(key, node, {}, status=status, error=None if status == "interrupt" else str(exc))
                 raise
 
         wrapped.__name__ = getattr(fn, "__name__", node)

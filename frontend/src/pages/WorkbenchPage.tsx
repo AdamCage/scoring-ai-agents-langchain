@@ -35,6 +35,7 @@ const STEPS: { node: string; label: string; tech: string }[] = [
   { node: "policy_critic", label: "Policy Critic", tech: "LangChain agent" },
   { node: "synthesize", label: "Synthesis", tech: "deterministic" },
   { node: "human_review", label: "Human review", tech: "interrupt" },
+  { node: "retrieve_more", label: "Ещё документы", tech: "HITL retry" },
 ];
 
 function money(value: number) {
@@ -101,7 +102,14 @@ export function WorkbenchPage() {
       if (!event.node) continue;
       if (event.type === "node_start") seen[event.node] = { status: "running" };
       if (event.type === "node_end") {
-        seen[event.node] = { status: "done", duration: Number(event.data.duration_ms) || 0 };
+        const paused = event.data.status === "interrupt";
+        seen[event.node] = {
+          status: paused ? "paused" : "done",
+          duration: Number(event.data.duration_ms) || 0,
+        };
+      }
+      if (event.type === "interrupt" && event.node) {
+        seen[event.node] = { ...(seen[event.node] || {}), status: "paused" };
       }
     }
     return STEPS.map((step) => ({ ...step, ...(seen[step.node] || { status: "idle" }) }));
@@ -147,6 +155,7 @@ export function WorkbenchPage() {
   async function resume(decision: string) {
     if (!runId) return;
     setBusy(true);
+    setInterrupt(null);
     try {
       const response = await fetch(`/api/runs/${runId}/resume`, {
         method: "POST",
@@ -302,7 +311,7 @@ export function WorkbenchPage() {
             <div className="mt-6 grid grid-cols-3 gap-3">
               <div>
                 <div className="text-sm text-muted">Score</div>
-                <div className="text-[28px] font-semibold">{fmtScore(scoring.score)}</div>
+                <div className="text-[28px] font-semibold">{fmtScore(scoring.score ?? interrupt?.score)}</div>
               </div>
               <div>
                 <div className="text-sm text-muted">Риск</div>
@@ -317,7 +326,12 @@ export function WorkbenchPage() {
             {interrupt && !done ? (
               <div className="mt-5 rounded-2xl bg-canvas p-4">
                 <p className="text-sm font-semibold">LangGraph interrupt · решение кредитного аналитика</p>
-                <p className="mt-1 text-sm text-muted">Граф стоит на checkpoint. Resume того же thread_id.</p>
+                <p className="mt-1 text-sm text-muted">
+                  Граф стоит на checkpoint. Resume того же thread_id.
+                  {events.some((item) => item.node === "retrieve_more")
+                    ? " Уже был retrieve_more — можно одобрить, отклонить или запросить ещё раз."
+                    : ""}
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button className="btn-yellow !py-2 text-sm" disabled={busy} onClick={() => resume("approve")}>
                     Одобрить
@@ -345,7 +359,7 @@ export function WorkbenchPage() {
                     className={`w-full rounded-2xl px-3 py-3 text-left ${
                       step.status === "done"
                         ? "bg-ink text-white"
-                        : step.status === "running"
+                        : step.status === "running" || step.status === "paused"
                           ? "bg-yellow"
                           : "bg-canvas"
                     }`}
@@ -354,7 +368,13 @@ export function WorkbenchPage() {
                   >
                     <div className="text-[13px] font-semibold">{step.label}</div>
                     <div className={`mt-1 text-[11px] ${step.status === "done" ? "text-white/70" : "text-muted"}`}>
-                      {step.status === "running" ? "● running" : step.status === "done" ? `✓ ${formatMs(step.duration)}` : step.tech}
+                      {step.status === "running"
+                        ? "● running"
+                        : step.status === "paused"
+                          ? "⏸ interrupt"
+                          : step.status === "done"
+                            ? `✓ ${formatMs(step.duration)}`
+                            : step.tech}
                     </div>
                   </button>
                 </li>
