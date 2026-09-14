@@ -1,0 +1,24 @@
+{
+  "model_version": "catboost-v1",
+  "algorithm": "CatBoostClassifier",
+  "rows": 8000,
+  "auc": 0.7208,
+  "default_rate": 0.2259,
+  "features": [
+    "company_age_months",
+    "annual_revenue",
+    "revenue_growth",
+    "ebitda_margin",
+    "debt_to_revenue",
+    "requested_amount",
+    "requested_term",
+    "credit_history_months",
+    "overdue_30d_count",
+    "overdue_90d_count",
+    "bureau_score",
+    "existing_loans_count",
+    "industry_risk",
+    "region_risk",
+    "amount_to_revenue"
+  ]
+}

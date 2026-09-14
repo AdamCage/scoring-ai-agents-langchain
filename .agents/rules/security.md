@@ -1,0 +1,8 @@
+# Security
+
+- Never commit `.env` or API keys.
+- Demo password + HMAC cookie auth on all mutating API routes.
+- Rate-limit analyze/chat endpoints.
+- `max_agent_steps`, timeout, and `MAX_OUTPUT_TOKENS` are hard limits.
+- LLM keys are server-side only.
+- Do not log raw secrets, cookie values, or full prompts in frontend telemetry.

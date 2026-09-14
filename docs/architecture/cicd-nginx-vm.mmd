@@ -1,0 +1,12 @@
+flowchart TD
+  Push[git_push]
+  CI[GitHub_Actions]
+  Image[GHCR_image]
+  SSH[SSH]
+  VM[Cloud_VM]
+  Compose[docker_compose]
+  Nginx[nginx]
+  App[app_plus_qdrant]
+
+  Push --> CI --> Image --> SSH --> VM --> Compose
+  Compose --> Nginx --> App

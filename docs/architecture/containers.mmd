@@ -1,0 +1,8 @@
+flowchart LR
+  Internet[Internet]
+  Nginx[nginx_80_TLS_later]
+  App[creditlens_app]
+  Qdrant[qdrant]
+  Internet --> Nginx --> App
+  App --> Qdrant
+  App --> RouterAI[routerai.ru]

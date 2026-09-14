@@ -1,0 +1,36 @@
+{
+  "order": [
+    "company_age_months",
+    "annual_revenue",
+    "revenue_growth",
+    "ebitda_margin",
+    "debt_to_revenue",
+    "requested_amount",
+    "requested_term",
+    "credit_history_months",
+    "overdue_30d_count",
+    "overdue_90d_count",
+    "bureau_score",
+    "existing_loans_count",
+    "industry_risk",
+    "region_risk",
+    "amount_to_revenue"
+  ],
+  "labels": {
+    "company_age_months": "Возраст бизнеса",
+    "annual_revenue": "Выручка",
+    "revenue_growth": "Рост выручки",
+    "ebitda_margin": "Рентабельность EBITDA",
+    "debt_to_revenue": "Долговая нагрузка",
+    "requested_amount": "Сумма кредита",
+    "requested_term": "Срок",
+    "credit_history_months": "Кредитная история",
+    "overdue_30d_count": "Просрочки 30+",
+    "overdue_90d_count": "Просрочки 90+",
+    "bureau_score": "Бюро-скор",
+    "existing_loans_count": "Действующие кредиты",
+    "industry_risk": "Отраслевой риск",
+    "region_risk": "Региональный риск",
+    "amount_to_revenue": "Сумма / выручка"
+  }
+}

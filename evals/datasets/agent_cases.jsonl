@@ -1,0 +1,8 @@
+{"id":"a1","expected":["validate_application","calculate_score","retrieve_policy","risk_analysis","policy_critic","synthesize"]}
+{"id":"a2","expected":["validate_application","calculate_score","explain_score"]}
+{"id":"a3","fail_if":"recommendation_without_scoring"}
+{"id":"a4","fail_if":"recommendation_without_scoring"}
+{"id":"a5","human_review":true}
+{"id":"a6","human_review":true}
+{"id":"a7","critic_loop":true}
+{"id":"a8","chat_grounded":true}

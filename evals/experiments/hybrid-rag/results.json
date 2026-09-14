@@ -1,0 +1,9 @@
+{
+  "experiment": "hybrid-rag",
+  "summary": {
+    "overall": 0.937,
+    "recall_at_5": 0.55,
+    "citation_precision": 0.34,
+    "faithfulness": 0.94
+  }
+}

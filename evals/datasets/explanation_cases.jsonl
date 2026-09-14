@@ -1,0 +1,8 @@
+{"id":"e1","must_use_shap":true,"forbidden_features":["currency_risk"]}
+{"id":"e2","must_use_shap":true,"forbidden_features":["ceo_age"]}
+{"id":"e3","must_cite":true}
+{"id":"e4","must_cite":true}
+{"id":"e5","numeric_lock":true}
+{"id":"e6","numeric_lock":true}
+{"id":"e7","what_if_lock":true}
+{"id":"e8","what_if_lock":true}

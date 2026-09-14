@@ -1,0 +1,13 @@
+flowchart TB
+  Login[DemoLogin]
+  Workbench[Workbench_3_panes]
+  Mobile[Mobile_4_tabs]
+  Arch[ArchitectureExplorer]
+  Obs[ObservabilityLab]
+  Qual[QualityLab]
+
+  Login --> Workbench
+  Workbench --> Mobile
+  Workbench --> Arch
+  Workbench --> Obs
+  Workbench --> Qual

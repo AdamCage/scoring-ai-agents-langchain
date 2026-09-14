@@ -1,0 +1,14 @@
+flowchart TB
+  API[FastAPI_analyze]
+  Adapter[creditlens.llm.routerai]
+  Graph[StateGraph_CreditState]
+  Tools[score_SHAP_retrieve_tools]
+  Callbacks[CreditLensCallback]
+  Tracer[LocalObservability_SQLite]
+  SSE[SSE_updates_custom_messages]
+
+  API --> Graph
+  Graph --> Adapter
+  Graph --> Tools
+  Graph --> Callbacks --> Tracer
+  Graph --> SSE

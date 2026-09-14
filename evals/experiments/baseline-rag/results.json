@@ -1,0 +1,9 @@
+{
+  "experiment": "baseline-rag",
+  "summary": {
+    "overall": 0.892,
+    "recall_at_5": 0.41,
+    "citation_precision": 0.28,
+    "faithfulness": 0.88
+  }
+}

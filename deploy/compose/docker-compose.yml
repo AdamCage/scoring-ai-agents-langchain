@@ -1,0 +1,38 @@
+services:
+  app:
+    image: ${CREDITLENS_IMAGE:-creditlens:local}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      APP_ENV: production
+      DATABASE_PATH: /data/creditlens.db
+      QDRANT_URL: http://qdrant:6333
+    volumes:
+      - app_data:/data
+    depends_on:
+      - qdrant
+    expose:
+      - "8000"
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    expose:
+      - "6333"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ../nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+volumes:
+  app_data:
+  qdrant_data:
