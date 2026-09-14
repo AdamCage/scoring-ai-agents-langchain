@@ -31,6 +31,7 @@ class Span(BaseModel):
     duration_ms: float | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     events: list[SpanEvent] = Field(default_factory=list)
+    generations: list[Generation] = Field(default_factory=list)
     error: str | None = None
     code_path: str | None = None
     mmd_node: str | None = None

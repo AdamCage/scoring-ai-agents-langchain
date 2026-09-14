@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import queue
+import threading
 import uuid
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
+from typing import Any
 
 from contracts.application import Application
 from contracts.evaluation import EvalResult, EvalRun
@@ -173,28 +177,48 @@ def _agent_cases(smoke: bool) -> list[EvalResult]:
     return results
 
 
-def run_evals(experiment: str = "hybrid-rerank", smoke: bool = False) -> EvalRun:
+def run_evals(
+    experiment: str = "hybrid-rerank",
+    smoke: bool = False,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+) -> EvalRun:
     started = datetime.now(UTC)
     run_id = str(uuid.uuid4())
+
+    def emit(event_type: str, data: dict[str, Any] | None = None) -> None:
+        if on_event:
+            on_event({"type": event_type, "run_id": run_id, **(data or {})})
+
+    emit("eval_start", {"experiment": experiment, "smoke": smoke, "phase": "scoring"})
     results = _scoring_cases()
+    for item in results:
+        emit("eval_case", item.model_dump())
     if not smoke:
         extra = _load_jsonl("scoring_cases.jsonl")
         for row in extra:
             app = Application.model_validate(row["application"])
             scored = score_application(app)
             ok = scored.decision == row.get("expected_decision", scored.decision)
-            results.append(
-                EvalResult(
-                    case_id=row["id"],
-                    dataset="scoring_cases",
-                    metric="expected_decision",
-                    score=1.0 if ok else 0.0,
-                    passed=ok,
-                    details=scored.model_dump(),
-                )
+            item = EvalResult(
+                case_id=row["id"],
+                dataset="scoring_cases",
+                metric="expected_decision",
+                score=1.0 if ok else 0.0,
+                passed=ok,
+                details=scored.model_dump(),
             )
-    results.extend(_rag_cases() if not smoke else _rag_cases()[:6])
-    results.extend(_agent_cases(smoke=smoke))
+            results.append(item)
+            emit("eval_case", item.model_dump())
+    emit("eval_phase", {"phase": "rag", "completed": len(results)})
+    rag = _rag_cases() if not smoke else _rag_cases()[:6]
+    for item in rag:
+        results.append(item)
+        emit("eval_case", item.model_dump())
+    emit("eval_phase", {"phase": "agents", "completed": len(results)})
+    agents = _agent_cases(smoke=smoke)
+    for item in agents:
+        results.append(item)
+        emit("eval_case", item.model_dump())
 
     by_metric: dict[str, list[float]] = {}
     for item in results:
@@ -213,7 +237,54 @@ def run_evals(experiment: str = "hybrid-rerank", smoke: bool = False) -> EvalRun
         prompt_version="risk-v1",
     )
     _persist(run)
+    emit("eval_done", {"summary": summary, "count": len(results), "experiment": experiment})
     return run
+
+
+def iter_eval_events(experiment: str = "hybrid-rerank", smoke: bool = True) -> Iterator[dict[str, Any]]:
+    pending: queue.Queue[Any] = queue.Queue()
+    sentinel = object()
+
+    def worker() -> None:
+        try:
+            run_evals(experiment=experiment, smoke=smoke, on_event=pending.put)
+        except Exception as exc:
+            pending.put({"type": "eval_error", "message": str(exc)})
+        finally:
+            pending.put(sentinel)
+
+    threading.Thread(target=worker, daemon=True, name="creditlens-eval").start()
+    while True:
+        item = pending.get()
+        if item is sentinel:
+            break
+        yield item
+
+
+def list_results(run_id: str | None = None) -> list[dict[str, Any]]:
+    conn = get_conn()
+    if run_id is None:
+        row = conn.execute("SELECT run_id FROM eval_runs ORDER BY started_at DESC LIMIT 1").fetchone()
+        if not row:
+            return []
+        run_id = row["run_id"]
+    rows = conn.execute(
+        "SELECT * FROM eval_results WHERE run_id=? ORDER BY id",
+        (run_id,),
+    ).fetchall()
+    return [
+        {
+            "case_id": row["case_id"],
+            "dataset": row["dataset"],
+            "metric": row["metric"],
+            "score": row["score"],
+            "passed": bool(row["passed"]),
+            "comment": row["comment"] or "",
+            "details": json.loads(row["details_json"] or "{}"),
+            "run_id": run_id,
+        }
+        for row in rows
+    ]
 
 
 def _persist(run: EvalRun) -> None:

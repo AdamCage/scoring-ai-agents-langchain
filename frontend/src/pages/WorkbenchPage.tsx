@@ -1,7 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Application, Preset, SSEEvent, api } from "../api";
+import { Application, GraphDefinition, Preset, SSEEvent, api, takeSseEvents } from "../api";
+import { AgentFeed } from "../components/AgentFeed";
+import { GraphProgress } from "../components/GraphProgress";
+import { LiveGraph } from "../components/LiveGraph";
+import { progressPercent, statusesFromEvents } from "../graphModel";
 import { PageTitle, TechPill } from "../ui";
 
 const emptyApp: Application = {
@@ -26,16 +30,6 @@ const emptyApp: Application = {
   region_risk: 0.2,
 };
 
-const STEPS: { node: string; label: string; tech: string }[] = [
-  { node: "validate_application", label: "Проверка", tech: "LangGraph" },
-  { node: "calculate_score", label: "Скоринг", tech: "CatBoost" },
-  { node: "explain_score", label: "SHAP", tech: "Tool" },
-  { node: "retrieve_policy", label: "Политика", tech: "RAG" },
-  { node: "risk_analysis", label: "Аналитик", tech: "LLM" },
-  { node: "policy_critic", label: "Критик", tech: "LLM" },
-  { node: "synthesize", label: "Решение", tech: "LangGraph" },
-];
-
 function money(value: number) {
   return new Intl.NumberFormat("ru-RU").format(Math.round(value));
 }
@@ -46,30 +40,52 @@ function fmtScore(value: unknown) {
   return Number.isFinite(number) ? number.toFixed(3) : String(value);
 }
 
+function lastEvent(events: SSEEvent[], pred: (event: SSEEvent) => boolean): SSEEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (pred(events[index])) return events[index];
+  }
+  return undefined;
+}
+
 export function WorkbenchPage() {
   const presets = useQuery({
     queryKey: ["presets"],
     queryFn: () => api<{ presets: Preset[] }>("/api/applications/presets"),
+  });
+  const graph = useQuery({
+    queryKey: ["graph-definition"],
+    queryFn: () => api<GraphDefinition>("/api/graph/definition"),
   });
   const [app, setApp] = useState<Application>(emptyApp);
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const [chat, setChat] = useState("");
   const [chatLog, setChatLog] = useState<{ q: string; a: string }[]>([]);
   const [amount, setAmount] = useState(10_000_000);
   const [whatIf, setWhatIf] = useState<Record<string, unknown> | null>(null);
 
-  const timeline = useMemo(() => {
-    const seen: Record<string, string> = {};
-    for (const event of events) {
-      if (!event.node) continue;
-      if (event.type === "node_start") seen[event.node] = "running";
-      if (event.type === "node_end") seen[event.node] = "done";
-    }
-    return STEPS.map((step) => ({ ...step, status: seen[step.node] || "idle" }));
-  }, [events]);
+  const statuses = useMemo(
+    () => statusesFromEvents(events, graph.data, Boolean(done) && !busy),
+    [events, graph.data, done, busy],
+  );
+
+  const scoringEvent = lastEvent(events, (event) => event.type === "tool" && event.node === "calculate_score");
+  const shapEvent = lastEvent(events, (event) => event.type === "tool" && event.node === "explain_score");
+  const scoring = ((done?.scoring || scoringEvent?.data || {}) as Record<string, string | number>);
+  const rec = (done?.recommendation || {}) as Record<string, string>;
+  const shap = (((done?.shap as Record<string, unknown>)?.features || shapEvent?.data.features || []) as {
+    label: string;
+    shap_value: number;
+  }[]);
+  const docs = (done?.documents || []) as { citation: string; text: string }[];
+  const retrieval = lastEvent(events, (event) => event.type === "retrieval");
+  const decision = String(scoring.decision || rec.title || "").toUpperCase();
+  const approved = decision === "APPROVE" || decision.includes("ОДОБР");
+  const maxShap = Math.max(...shap.slice(0, 5).map((item) => Math.abs(item.shap_value)), 0.01);
+  const percent = progressPercent(statuses, graph.data?.happy_path || []);
 
   async function analyze() {
     setBusy(true);
@@ -77,6 +93,7 @@ export function WorkbenchPage() {
     setDone(null);
     setWhatIf(null);
     setChatLog([]);
+    setError("");
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -92,17 +109,18 @@ export function WorkbenchPage() {
         const { value, done: finished } = await reader.read();
         if (finished) break;
         buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() || "";
-        for (const chunk of chunks) {
-          const dataLine = chunk.split("\n").find((line) => line.startsWith("data:"));
-          if (!dataLine) continue;
-          const event = JSON.parse(dataLine.slice(5)) as SSEEvent;
-          setEvents((prev) => [...prev, event]);
+        const parsed = takeSseEvents(buffer);
+        buffer = parsed.rest;
+        if (!parsed.events.length) continue;
+        setEvents((prev) => [...prev, ...parsed.events]);
+        for (const event of parsed.events) {
           if (event.run_id) setRunId(event.run_id);
           if (event.type === "done") setDone(event.data);
+          if (event.type === "error") setError(String(event.data.message || "Ошибка графа"));
         }
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось запустить анализ");
     } finally {
       setBusy(false);
     }
@@ -126,40 +144,29 @@ export function WorkbenchPage() {
     setWhatIf(result);
   }
 
-  const scoring = (done?.scoring || {}) as Record<string, string | number>;
-  const rec = (done?.recommendation || {}) as Record<string, string>;
-  const shap = ((done?.shap as Record<string, unknown>)?.features || []) as {
-    label: string;
-    shap_value: number;
-  }[];
-  const docs = (done?.documents || []) as { citation: string; text: string }[];
-  const decision = String(scoring.decision || rec.title || "").toUpperCase();
-  const approved = decision === "APPROVE" || decision.includes("ОДОБР");
-  const maxShap = Math.max(...shap.slice(0, 5).map((item) => Math.abs(item.shap_value)), 0.01);
-
   return (
     <div>
       <PageTitle
         kicker="Демо для интервью"
         title="Разбор кредитной заявки"
-        text="Модель считает score. Агенты LangGraph объясняют и цитируют политику. Каждый шаг пишется в trace и проверяется evals."
+        text="CatBoost считает score. LangGraph оркестрирует агентов. Каждый узел стримится в SSE, пишется в trace и проверяется evals."
       />
 
       <div className="mb-5 grid gap-3 md:grid-cols-3">
         <Link className="tile p-4" to="/architecture">
           <p className="text-xs text-muted">1 · LangChain</p>
           <p className="mt-1 text-[16px] font-semibold">Граф и tools</p>
-          <p className="mt-1 text-sm text-muted">CatBoost пишет score. LLM только объясняет.</p>
+          <p className="mt-1 text-sm text-muted">Живая схема StateGraph. LLM только объясняет.</p>
         </Link>
         <Link className="tile p-4" to="/observability">
           <p className="text-xs text-muted">2 · Observability</p>
-          <p className="mt-1 text-[16px] font-semibold">Локальные spans</p>
-          <p className="mt-1 text-sm text-muted">SQLite-трейсы без LangSmith и Langfuse.</p>
+          <p className="mt-1 text-[16px] font-semibold">Waterfall spans</p>
+          <p className="mt-1 text-sm text-muted">Локальные трейсы, RAG payload и generations.</p>
         </Link>
         <Link className="tile p-4" to="/quality">
           <p className="text-xs text-muted">3 · Evaluation</p>
-          <p className="mt-1 text-[16px] font-semibold">Quality gate</p>
-          <p className="mt-1 text-sm text-muted">Цитаты, RAG hit-rate и целостность скора.</p>
+          <p className="mt-1 text-[16px] font-semibold">Кейсы и gate</p>
+          <p className="mt-1 text-sm text-muted">Метрики, pass/fail и сравнение экспериментов.</p>
         </Link>
       </div>
 
@@ -220,21 +227,18 @@ export function WorkbenchPage() {
             onChange={(e) => setApp({ ...app, debt_to_revenue: Number(e.target.value) })}
           />
           <button className="btn-yellow mt-5 w-full" disabled={busy} onClick={analyze}>
-            {busy ? "Считаем…" : "Проанализировать"}
+            {busy ? `Считаем… ${percent}%` : "Проанализировать"}
           </button>
+          {error ? <p className="mt-3 text-sm text-bad">{error}</p> : null}
         </section>
 
         <div className="grid gap-4">
-          <section
-            className={`rounded-tile p-6 shadow-tile ${
-              approved ? "bg-yellow" : "bg-white"
-            }`}
-          >
+          <section className={`rounded-tile p-6 shadow-tile ${approved ? "bg-yellow" : "bg-white"}`}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm text-muted">{app.company_name || "Выберите клиента"}</p>
                 <h2 className="mt-1 text-[34px] font-semibold leading-none">
-                  {rec.title || (busy ? "Анализ" : "Ждём заявку")}
+                  {rec.title || (busy ? "Анализ" : scoring.decision ? String(scoring.decision) : "Ждём заявку")}
                 </h2>
               </div>
               <TechPill>score пишет только CatBoost</TechPill>
@@ -256,32 +260,25 @@ export function WorkbenchPage() {
             {rec.summary && <p className="mt-4 max-w-3xl text-[15px] leading-6">{rec.summary}</p>}
           </section>
 
-          <section className="tile p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-[17px] font-semibold">Как идёт LangGraph</h3>
-              <TechPill>live stream</TechPill>
-            </div>
-            <ol className="grid grid-cols-2 gap-2 md:grid-cols-7">
-              {timeline.map((step) => (
-                <li
-                  key={step.node}
-                  className={`rounded-2xl px-3 py-3 ${
-                    step.status === "done"
-                      ? "bg-ink text-white"
-                      : step.status === "running"
-                        ? "bg-yellow"
-                        : "bg-canvas"
-                  }`}
-                >
-                  <div className="text-[13px] font-semibold">{step.label}</div>
-                  <div className={`mt-1 text-[11px] ${step.status === "done" ? "text-white/70" : "text-muted"}`}>
-                    {step.tech}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </section>
+          <GraphProgress definition={graph.data} statuses={statuses} busy={busy} />
         </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="tile p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-[17px] font-semibold">Граф LangGraph</h3>
+            <TechPill>live mermaid · mmd_node</TechPill>
+          </div>
+          <div className="mb-3 flex flex-wrap gap-2 text-xs">
+            <span className="pill">CatBoost · calculate_score</span>
+            <span className="pill">SHAP ∥ Hybrid RAG</span>
+            <span className="pill">LLM-агенты · risk / critic / synth</span>
+            <span className="pill">critic ⟲ retrieve_more</span>
+          </div>
+          <LiveGraph definition={graph.data} statuses={statuses} />
+        </section>
+        <AgentFeed events={events} definition={graph.data} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -291,7 +288,7 @@ export function WorkbenchPage() {
             <TechPill>SHAP</TechPill>
           </div>
           {shap.length === 0 ? (
-            <p className="text-sm text-muted">После анализа здесь будут факторы модели.</p>
+            <p className="text-sm text-muted">После узла explain_score здесь появятся факторы модели.</p>
           ) : (
             <ul className="space-y-3">
               {shap.slice(0, 5).map((item) => (
@@ -341,8 +338,14 @@ export function WorkbenchPage() {
             <h3 className="text-[17px] font-semibold">Основания из политики</h3>
             <TechPill>Hybrid RAG</TechPill>
           </div>
+          {retrieval && !docs.length ? (
+            <p className="mb-3 text-sm text-muted">
+              Retrieval {String(retrieval.data.latency_ms ?? "—")} мс · rerank{" "}
+              {((retrieval.data.rerank as string[]) || []).slice(0, 3).join(", ")}
+            </p>
+          ) : null}
           {docs.length === 0 ? (
-            <p className="text-sm text-muted">Цитаты появятся после retrieval.</p>
+            <p className="text-sm text-muted">Цитаты появятся после retrieve_policy.</p>
           ) : (
             <ul className="space-y-3">
               {docs.map((doc) => (

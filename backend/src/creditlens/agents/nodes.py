@@ -6,7 +6,9 @@ from contracts.recommendation import Critique, Recommendation, RiskAnalysis
 from contracts.scoring import ScoringResult, ShapResult
 from contracts.state import CreditState
 
+from creditlens.agents.runtime import current_node, current_span_id, emit_token, get_context
 from creditlens.llm.routerai import chat_model, llm_available
+from creditlens.observability.callbacks import CreditLensCallback
 from creditlens.rag.retrieve import retrieve_policy
 from creditlens.scoring.service import explain_application, score_application
 
@@ -117,17 +119,58 @@ def _deterministic_analysis(app: Application, scoring: ScoringResult, shap: Shap
     )
 
 
+def _chunk_text(chunk: object) -> str:
+    content = getattr(chunk, "content", None)
+    if content is None:
+        return ""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(str(part.get("text") or ""))
+            else:
+                parts.append(str(part))
+        return "".join(parts)
+    return str(content)
+
+
 def _try_llm(system: str, user: str) -> str | None:
     if not llm_available():
         return None
     model = chat_model()
     if model is None:
         return None
+    ctx = get_context()
+    node = current_node() or "risk_analysis"
+    callbacks = []
+    if ctx is not None:
+        callbacks.append(
+            CreditLensCallback(
+                ctx.obs,
+                ctx.trace_id,
+                parent_span_id=current_span_id() or ctx.parent_span_id,
+                node=node,
+            )
+        )
+    config = {"callbacks": callbacks} if callbacks else None
+    messages = [("system", system), ("human", user)]
     try:
-        message = model.invoke([("system", system), ("human", user)])
-        return str(message.content)
+        parts: list[str] = []
+        for chunk in model.stream(messages, config=config):
+            text = _chunk_text(chunk)
+            if text:
+                parts.append(text)
+                emit_token(text, node)
+        return "".join(parts) or None
     except Exception:
-        return None
+        try:
+            message = model.invoke(messages, config=config)
+            text = str(message.content)
+            if text:
+                emit_token(text, node)
+            return text
+        except Exception:
+            return None
 
 
 def risk_analysis(state: CreditState) -> dict:

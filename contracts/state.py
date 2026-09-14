@@ -11,6 +11,7 @@ def _extend_list(left: list, right: list) -> list:
 
 
 class CreditState(TypedDict, total=False):
+    run_id: str
     application: Application
     validation: ValidationResult | None
     scoring: ScoringResult | None

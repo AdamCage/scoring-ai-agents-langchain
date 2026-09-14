@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { EvalsResponse, Experiment, api } from "../api";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { EvalCase, EvalsResponse, Experiment, api, takeSseEvents } from "../api";
 import { PageTitle, TechPill } from "../ui";
 
 const METRIC_HELP: Record<string, string> = {
@@ -35,10 +36,14 @@ export function QualityPage() {
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState("");
+  const [liveResults, setLiveResults] = useState<EvalCase[]>([]);
   const [error, setError] = useState("");
 
   const summary = evals.data?.summary || {};
   const experiments = evals.data?.experiments || [];
+  const thresholds = evals.data?.thresholds || {};
+  const results = liveResults.length && busy ? liveResults : evals.data?.results || liveResults;
   const metrics = Object.entries(summary).filter(([key, value]) => typeof value === "number" && !HIDDEN.has(key));
   const leftExp = experiments.find((item) => item.run_id === (left || experiments[0]?.run_id));
   const rightExp = experiments.find((item) => item.run_id === (right || experiments[1]?.run_id));
@@ -46,17 +51,70 @@ export function QualityPage() {
     if (!leftExp || !rightExp) return [];
     return Array.from(new Set([...Object.keys(leftExp.summary || {}), ...Object.keys(rightExp.summary || {})]));
   }, [leftExp, rightExp]);
+  const compareData = compareKeys.map((key) => ({
+    metric: key,
+    A: Number(leftExp?.summary[key] ?? 0),
+    B: Number(rightExp?.summary[key] ?? 0),
+  }));
+  const failedMetrics = new Set(
+    results.filter((item) => !item.passed).map((item) => `${item.case_id}:${item.metric}`),
+  );
 
   async function onRun(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setLiveResults([]);
+    setPhase("start");
     try {
-      await api<EvalsResponse>("/api/evals", {
+      const response = await fetch("/api/evals/stream", {
         method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ experiment: name, smoke }),
       });
+      if (!response.ok || !response.body) {
+        await api<EvalsResponse>("/api/evals", {
+          method: "POST",
+          body: JSON.stringify({ experiment: name, smoke }),
+        });
+      } else {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parsed = takeSseEvents<Record<string, unknown>>(buffer);
+          buffer = parsed.rest;
+          for (const data of parsed.events) {
+            const type = String(data.type || "");
+            if (type === "eval_phase" || type === "eval_start") {
+              setPhase(String(data.phase || type));
+            }
+            if (type === "eval_case") {
+              setLiveResults((prev) => [
+                ...prev,
+                {
+                  case_id: String(data.case_id || ""),
+                  dataset: String(data.dataset || ""),
+                  metric: String(data.metric || ""),
+                  score: Number(data.score || 0),
+                  passed: Boolean(data.passed),
+                  comment: String(data.comment || ""),
+                  details: (data.details as Record<string, unknown>) || {},
+                },
+              ]);
+            }
+            if (type === "eval_error") {
+              setError(String(data.message || "eval failed"));
+            }
+          }
+        }
+      }
       await evals.refetch();
+      setPhase("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось прогнать eval");
     } finally {
@@ -69,18 +127,35 @@ export function QualityPage() {
       <PageTitle
         kicker="Evaluation"
         title="Качество ответа"
-        text="Локальный runner и quality gate. Интервьюеру сразу видно: цитаты, верность скору, hit-rate RAG."
+        text="Локальный runner и quality gate. Видно каждый кейс, порог метрики и сравнение экспериментов."
       />
 
       {metrics.length > 0 ? (
-        <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
-          {metrics.map(([key, value]) => (
-            <article key={key} className={`tile p-5 ${key === "overall" || key === "numeric_consistency" ? "bg-yellow" : ""}`}>
-              <p className="text-xs text-muted">{METRIC_HELP[key] ?? key}</p>
-              <p className="mt-3 text-3xl font-semibold">{formatMetric(key, value)}</p>
-              <p className="mt-1 font-mono text-[11px] text-muted">{key}</p>
-            </article>
-          ))}
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {metrics.map(([key, value]) => {
+            const score = Number(value);
+            const threshold = thresholds[key];
+            return (
+              <article key={key} className={`tile p-5 ${key === "overall" || key === "numeric_consistency" ? "bg-yellow" : ""}`}>
+                <p className="text-xs text-muted">{METRIC_HELP[key] ?? key}</p>
+                <p className="mt-3 text-3xl font-semibold">{formatMetric(key, value)}</p>
+                <p className="mt-1 font-mono text-[11px] text-muted">{key}</p>
+                <div className="relative mt-3 h-2 rounded-full bg-canvas">
+                  <div className="h-full rounded-full bg-ink" style={{ width: `${Math.min(score, 1) * 100}%` }} />
+                  {threshold != null ? (
+                    <span
+                      className="absolute top-[-3px] h-3.5 w-0.5 bg-bad"
+                      style={{ left: `${Math.min(threshold, 1) * 100}%` }}
+                      title={`порог ${threshold}`}
+                    />
+                  ) : null}
+                </div>
+                {threshold != null ? (
+                  <p className="mt-2 text-[11px] text-muted">порог {Math.round(threshold * 100)}%</p>
+                ) : null}
+              </article>
+            );
+          })}
         </div>
       ) : (
         <div className="tile px-6 py-10 text-sm text-muted">
@@ -106,13 +181,23 @@ export function QualityPage() {
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="mt-4 flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={smoke}
-              onChange={(e) => setSmoke(e.target.checked)}
-            />
+            <input type="checkbox" checked={smoke} onChange={(e) => setSmoke(e.target.checked)} />
             Быстрый smoke: scoring, RAG и 2 агентных кейса
           </label>
+          {busy ? (
+            <div className="mt-4">
+              <div className="mb-2 flex justify-between text-sm">
+                <span>Фаза: {phase || "run"}</span>
+                <span>{liveResults.length} кейсов</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-canvas">
+                <div
+                  className="h-full rounded-full bg-yellow transition-all"
+                  style={{ width: `${Math.min(100, 8 + liveResults.length * 4)}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
           <button className="btn mt-5" disabled={busy} type="submit">
             {busy ? "Считаю…" : "Прогнать eval"}
           </button>
@@ -124,32 +209,63 @@ export function QualityPage() {
             <ExperimentSelect items={experiments} value={left || experiments[0]?.run_id || ""} onChange={setLeft} />
             <ExperimentSelect items={experiments} value={right || experiments[1]?.run_id || ""} onChange={setRight} />
           </div>
-          {leftExp && rightExp ? (
-            <div className="mt-5 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-xs text-muted">
-                  <tr>
-                    <th className="pb-2 font-medium">Метрика</th>
-                    <th className="pb-2 font-medium">{leftExp.experiment}</th>
-                    <th className="pb-2 font-medium">{rightExp.experiment}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {compareKeys.map((key) => (
-                    <tr key={key} className="border-t border-line">
-                      <td className="py-2">{METRIC_HELP[key] ?? key}</td>
-                      <td className="py-2 font-semibold">{formatMetric(key, leftExp.summary[key])}</td>
-                      <td className="py-2 font-semibold">{formatMetric(key, rightExp.summary[key])}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {leftExp && rightExp && compareData.length ? (
+            <div className="mt-5 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={compareData}>
+                  <CartesianGrid stroke="#E4E5EA" vertical={false} />
+                  <XAxis dataKey="metric" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={60} />
+                  <YAxis domain={[0, 1]} tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(value) => `${Math.round(Number(value) * 100)}%`} />
+                  <Bar dataKey="A" name={leftExp.experiment} fill="#000000" radius={6} />
+                  <Bar dataKey="B" name={rightExp.experiment} fill="#FFCC00" radius={6} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           ) : (
             <p className="mt-5 text-sm text-muted">Нужны два прогона, чтобы сравнить эксперименты.</p>
           )}
         </section>
       </div>
+
+      <section className="tile mt-4 overflow-x-auto p-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-[17px] font-semibold">Кейсы</h2>
+          <TechPill>{`${results.length} EvalResult`}</TechPill>
+        </div>
+        {results.length === 0 ? (
+          <p className="text-sm text-muted">После прогона здесь будет таблица pass/fail по каждому кейсу.</p>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs text-muted">
+              <tr>
+                <th className="pb-2 font-medium">Датасет</th>
+                <th className="pb-2 font-medium">Кейс</th>
+                <th className="pb-2 font-medium">Метрика</th>
+                <th className="pb-2 font-medium">Score</th>
+                <th className="pb-2 font-medium">Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((item, index) => (
+                <tr key={`${item.case_id}-${item.metric}-${index}`} className="border-t border-line">
+                  <td className="py-2 text-muted">{item.dataset}</td>
+                  <td className="py-2">{item.case_id}</td>
+                  <td className="py-2">{item.metric}</td>
+                  <td className="py-2 font-semibold">{formatMetric(item.metric, item.score)}</td>
+                  <td className={`py-2 font-medium ${item.passed ? "text-ok" : "text-bad"}`}>
+                    {item.passed ? "pass" : "fail"}
+                    {!item.passed && item.comment ? ` · ${item.comment}` : ""}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {failedMetrics.size ? (
+          <p className="mt-3 text-sm text-bad">Упало метрик: {failedMetrics.size}</p>
+        ) : null}
+      </section>
 
       {experiments.length > 0 ? (
         <section className="tile mt-4 p-6">

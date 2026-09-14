@@ -19,20 +19,21 @@ from creditlens.agents.nodes import (
     synthesize,
     validate_application,
 )
+from creditlens.agents.runtime import traced
 
 
 def build_graph() -> Any:
     builder = StateGraph(CreditState)
-    builder.add_node("validate_application", validate_application)
-    builder.add_node("request_information", request_information)
-    builder.add_node("calculate_score", calculate_score)
-    builder.add_node("explain_score", explain_score)
-    builder.add_node("retrieve_policy", retrieve_policy_node)
-    builder.add_node("risk_analysis", risk_analysis)
-    builder.add_node("policy_critic", policy_critic)
-    builder.add_node("retrieve_more", retrieve_more)
-    builder.add_node("synthesize", synthesize)
-    builder.add_node("human_review", human_review)
+    builder.add_node("validate_application", traced("validate_application", validate_application))
+    builder.add_node("request_information", traced("request_information", request_information))
+    builder.add_node("calculate_score", traced("calculate_score", calculate_score))
+    builder.add_node("explain_score", traced("explain_score", explain_score))
+    builder.add_node("retrieve_policy", traced("retrieve_policy", retrieve_policy_node))
+    builder.add_node("risk_analysis", traced("risk_analysis", risk_analysis))
+    builder.add_node("policy_critic", traced("policy_critic", policy_critic))
+    builder.add_node("retrieve_more", traced("retrieve_more", retrieve_more))
+    builder.add_node("synthesize", traced("synthesize", synthesize))
+    builder.add_node("human_review", traced("human_review", human_review))
 
     builder.add_edge(START, "validate_application")
     builder.add_conditional_edges(

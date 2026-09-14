@@ -11,6 +11,18 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
+export function takeSseEvents<T = SSEEvent>(buffer: string): { events: T[]; rest: string } {
+  const chunks = buffer.split("\n\n");
+  const rest = chunks.pop() || "";
+  const events: T[] = [];
+  for (const chunk of chunks) {
+    const dataLine = chunk.split("\n").find((line) => line.startsWith("data:"));
+    if (!dataLine) continue;
+    events.push(JSON.parse(dataLine.slice(5).trim()) as T);
+  }
+  return { events, rest };
+}
+
 export type Health = {
   status: string;
   scoring_model: string;
@@ -65,18 +77,34 @@ export type SSEEvent = {
 
 export type SpanEvent = {
   name: string;
+  payload?: Record<string, unknown>;
+  timestamp?: string;
+};
+
+export type Generation = {
+  span_id: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  input_preview: string;
+  output_preview: string;
 };
 
 export type Span = {
   span_id: string;
+  parent_span_id?: string | null;
   name: string;
   kind: string;
   status: string;
+  started_at?: string;
+  ended_at?: string | null;
   duration_ms?: number | null;
+  attributes?: Record<string, unknown>;
   code_path?: string | null;
   mmd_node?: string | null;
   error?: string | null;
   events: SpanEvent[];
+  generations?: Generation[];
 };
 
 export type Trace = {
@@ -90,6 +118,30 @@ export type Trace = {
   spans: Span[];
 };
 
+export type GraphNode = {
+  id: string;
+  mmd: string;
+  label: string;
+  tech: string;
+  kind: string;
+  optional?: boolean;
+  parallel_group?: string;
+};
+
+export type GraphEdge = {
+  source: string;
+  target: string;
+  label?: string;
+};
+
+export type GraphDefinition = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  happy_path: string[];
+  mermaid: string;
+  node_meta: Record<string, { code_path: string; mmd_node: string }>;
+};
+
 export type Experiment = {
   run_id: string;
   experiment: string;
@@ -98,9 +150,21 @@ export type Experiment = {
   status: string;
 };
 
+export type EvalCase = {
+  case_id: string;
+  dataset: string;
+  metric: string;
+  score: number;
+  passed: boolean;
+  comment: string;
+  details: Record<string, unknown>;
+  run_id?: string;
+};
+
 export type EvalsResponse = {
   summary: Record<string, unknown>;
   experiments: Experiment[];
+  results: EvalCase[];
   gate: { passed: boolean; failed: string[] } | null;
   thresholds: Record<string, number>;
 };
