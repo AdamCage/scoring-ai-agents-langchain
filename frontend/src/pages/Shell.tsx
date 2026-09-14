@@ -1,7 +1,6 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, Health } from "../api";
-import { useEffect } from "react";
 import { Logo } from "../ui";
 
 const links = [
@@ -12,17 +11,7 @@ const links = [
 ];
 
 export function Shell() {
-  const navigate = useNavigate();
-  const me = useQuery({
-    queryKey: ["me"],
-    queryFn: () => api<{ authenticated: boolean }>("/api/auth/me"),
-    retry: false,
-  });
   const health = useQuery({ queryKey: ["health"], queryFn: () => api<Health>("/api/health") });
-
-  useEffect(() => {
-    if (me.isError) navigate("/login");
-  }, [me.isError, navigate]);
 
   return (
     <div className="min-h-screen bg-canvas">

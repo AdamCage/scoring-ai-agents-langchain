@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from contracts.application import Application
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,7 +19,6 @@ from creditlens.agents.runner import (
     run_analysis,
     what_if,
 )
-from creditlens.api.auth import issue_session, require_session, set_cookie
 from creditlens.api.docs import router as docs_router
 from creditlens.api.rate_limit import limit
 from creditlens.config import ROOT, get_settings
@@ -49,10 +48,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(docs_router)
-
-
-class LoginBody(BaseModel):
-    password: str
 
 
 class AnalyzeBody(BaseModel):
@@ -99,31 +94,13 @@ def health() -> dict:
     }
 
 
-@app.post("/api/auth/login")
-def login(body: LoginBody, request: Request):
-    limit(request, 20, 60)
-    from fastapi.responses import JSONResponse
-
-    token = issue_session(body.password)
-    response = JSONResponse({"ok": True})
-    forwarded = request.headers.get("x-forwarded-proto", "")
-    secure = request.url.scheme == "https" or forwarded.lower() == "https"
-    set_cookie(response, token, secure=secure)
-    return response
-
-
-@app.get("/api/auth/me")
-def me(_: str = Depends(require_session)) -> dict:
-    return {"authenticated": True}
-
-
 @app.get("/api/applications/presets")
-def get_presets(_: str = Depends(require_session)) -> dict:
+def get_presets() -> dict:
     return {"presets": [item.model_dump() for item in presets()]}
 
 
 @app.post("/api/analyze")
-def analyze(body: AnalyzeBody, request: Request, _: str = Depends(require_session)):
+def analyze(body: AnalyzeBody, request: Request):
     limit(request, settings.analyze_rate_limit, 60)
     app_data = body.application
     if body.preset_id:
@@ -145,7 +122,7 @@ def analyze(body: AnalyzeBody, request: Request, _: str = Depends(require_sessio
 
 
 @app.post("/api/analyze/sync")
-def analyze_sync(body: AnalyzeBody, request: Request, _: str = Depends(require_session)):
+def analyze_sync(body: AnalyzeBody, request: Request):
     limit(request, settings.analyze_rate_limit, 60)
     app_data = body.application
     if body.preset_id:
@@ -166,12 +143,12 @@ def analyze_sync(body: AnalyzeBody, request: Request, _: str = Depends(require_s
 
 
 @app.get("/api/runs")
-def runs(_: str = Depends(require_session)) -> dict:
+def runs() -> dict:
     return {"runs": list_runs()}
 
 
 @app.get("/api/runs/{run_id}")
-def run_detail(run_id: str, _: str = Depends(require_session)) -> dict:
+def run_detail(run_id: str) -> dict:
     item = load_run(run_id)
     if not item:
         raise HTTPException(404)
@@ -179,7 +156,7 @@ def run_detail(run_id: str, _: str = Depends(require_session)) -> dict:
 
 
 @app.post("/api/runs/{run_id}/review")
-def review(run_id: str, body: ReviewBody, _: str = Depends(require_session)) -> dict:
+def review(run_id: str, body: ReviewBody) -> dict:
     item = apply_human_decision(run_id, body.decision, body.comment)
     if not item:
         raise HTTPException(404)
@@ -187,7 +164,7 @@ def review(run_id: str, body: ReviewBody, _: str = Depends(require_session)) -> 
 
 
 @app.post("/api/chat")
-def chat(body: ChatBody, request: Request, _: str = Depends(require_session)) -> dict:
+def chat(body: ChatBody, request: Request) -> dict:
     limit(request, settings.chat_rate_limit, 3600)
     try:
         return chat_about_run(body.run_id, body.message)
@@ -196,18 +173,18 @@ def chat(body: ChatBody, request: Request, _: str = Depends(require_session)) ->
 
 
 @app.post("/api/what-if")
-def whatif(body: WhatIfBody, _: str = Depends(require_session)) -> dict:
+def whatif(body: WhatIfBody) -> dict:
     return what_if(body.application, body.overrides)
 
 
 @app.get("/api/traces")
-def traces(_: str = Depends(require_session)) -> dict:
+def traces() -> dict:
     items = get_observability().list_traces()
     return {"traces": [item.model_dump() for item in items]}
 
 
 @app.get("/api/traces/{trace_id}")
-def trace_detail(trace_id: str, _: str = Depends(require_session)) -> dict:
+def trace_detail(trace_id: str) -> dict:
     item = get_observability().get_trace(trace_id)
     if not item:
         raise HTTPException(404)
@@ -215,7 +192,7 @@ def trace_detail(trace_id: str, _: str = Depends(require_session)) -> dict:
 
 
 @app.get("/api/runs/{run_id}/trace")
-def run_trace(run_id: str, _: str = Depends(require_session)) -> dict:
+def run_trace(run_id: str) -> dict:
     item = get_observability().get_trace_by_run(run_id)
     if not item:
         raise HTTPException(404)
@@ -238,12 +215,12 @@ def _evals_payload() -> dict:
 
 
 @app.get("/api/evals")
-def evals(_: str = Depends(require_session)) -> dict:
+def evals() -> dict:
     return _evals_payload()
 
 
 @app.post("/api/evals")
-def run_evaluation(body: EvalBody, request: Request, _: str = Depends(require_session)):
+def run_evaluation(body: EvalBody, request: Request):
     limit(request, 4, 300)
     run_evals(experiment=body.experiment, smoke=body.smoke)
     return _evals_payload()

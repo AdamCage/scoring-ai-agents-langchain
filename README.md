@@ -24,7 +24,7 @@ cd frontend && npm install && npm run build && cd ..
 PYTHONPATH=.:backend/src uvicorn creditlens.main:app --app-dir backend/src --reload --port 8000
 ```
 
-Demo-пароль по умолчанию: `creditlens-demo`.
+Авторизации нет — демо открывается сразу.
 
 Откройте `http://127.0.0.1:8000` или `https://credit-adamcage.ru` — Workbench, Architecture, Observability, Quality Lab.
 

@@ -4,16 +4,12 @@ from creditlens.db import init_db
 from creditlens.main import app
 
 
-def test_health_and_login_flow():
+def test_health_and_open_demo_flow():
     init_db()
     client = TestClient(app)
     health = client.get("/api/health")
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
-    denied = client.get("/api/applications/presets")
-    assert denied.status_code == 401
-    login = client.post("/api/auth/login", json={"password": "creditlens-demo"})
-    assert login.status_code == 200
     presets = client.get("/api/applications/presets")
     assert presets.status_code == 200
     assert len(presets.json()["presets"]) == 6
