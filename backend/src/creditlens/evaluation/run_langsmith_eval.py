@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from contracts.application import Application
+
 from creditlens.agents.runner import run_analysis
 from creditlens.config import ROOT
 from creditlens.evaluation.judge import judge_faithfulness
