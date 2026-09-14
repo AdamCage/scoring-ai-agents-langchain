@@ -40,6 +40,12 @@ function money(value: number) {
   return new Intl.NumberFormat("ru-RU").format(Math.round(value));
 }
 
+function fmtScore(value: unknown) {
+  if (value == null || value === "") return "—";
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(3) : String(value);
+}
+
 export function WorkbenchPage() {
   const presets = useQuery({
     queryKey: ["presets"],
@@ -127,7 +133,8 @@ export function WorkbenchPage() {
     shap_value: number;
   }[];
   const docs = (done?.documents || []) as { citation: string; text: string }[];
-  const decision = String(scoring.decision || rec.title || "");
+  const decision = String(scoring.decision || rec.title || "").toUpperCase();
+  const approved = decision === "APPROVE" || decision.includes("ОДОБР");
   const maxShap = Math.max(...shap.slice(0, 5).map((item) => Math.abs(item.shap_value)), 0.01);
 
   return (
@@ -218,7 +225,11 @@ export function WorkbenchPage() {
         </section>
 
         <div className="grid gap-4">
-          <section className={`tile p-6 ${decision === "APPROVE" || rec.title === "ОДОБРЕНИЕ" ? "bg-yellow" : "bg-white"}`}>
+          <section
+            className={`rounded-tile p-6 shadow-tile ${
+              approved ? "bg-yellow" : "bg-white"
+            }`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm text-muted">{app.company_name || "Выберите клиента"}</p>
@@ -231,7 +242,7 @@ export function WorkbenchPage() {
             <div className="mt-6 grid grid-cols-3 gap-3">
               <div>
                 <div className="text-sm text-muted">Score</div>
-                <div className="text-[28px] font-semibold">{scoring.score ?? "—"}</div>
+                <div className="text-[28px] font-semibold">{fmtScore(scoring.score)}</div>
               </div>
               <div>
                 <div className="text-sm text-muted">Риск</div>
@@ -239,7 +250,7 @@ export function WorkbenchPage() {
               </div>
               <div>
                 <div className="text-sm text-muted">PD</div>
-                <div className="text-[28px] font-semibold">{scoring.pd ?? "—"}</div>
+                <div className="text-[28px] font-semibold">{fmtScore(scoring.pd)}</div>
               </div>
             </div>
             {rec.summary && <p className="mt-4 max-w-3xl text-[15px] leading-6">{rec.summary}</p>}

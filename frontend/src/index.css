@@ -10,20 +10,26 @@ body,
   color: #000;
 }
 
-.tile {
-  @apply rounded-tile bg-white shadow-tile;
-}
+@layer components {
+  .tile {
+    @apply rounded-tile bg-white shadow-tile;
+  }
 
-.btn {
-  @apply inline-flex items-center justify-center rounded-2xl bg-ink px-5 py-3 text-[15px] font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40;
-}
+  .btn {
+    @apply inline-flex items-center justify-center rounded-2xl bg-ink px-5 py-3 text-[15px] font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40;
+  }
 
-.btn-yellow {
-  @apply inline-flex items-center justify-center rounded-2xl bg-yellow px-5 py-3 text-[15px] font-medium text-ink transition hover:bg-yhover disabled:opacity-40;
-}
+  .btn-yellow {
+    @apply inline-flex items-center justify-center rounded-2xl bg-yellow px-5 py-3 text-[15px] font-medium text-ink transition hover:bg-yhover disabled:opacity-40;
+  }
 
-.btn-ghost {
-  @apply inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2.5 text-[15px] text-ink ring-1 ring-line transition hover:bg-canvas;
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2.5 text-[15px] text-ink ring-1 ring-line transition hover:bg-canvas;
+  }
+
+  .pill {
+    @apply inline-flex items-center rounded-full bg-canvas px-2.5 py-1 text-xs font-medium text-muted;
+  }
 }
 
 input:not([type="checkbox"]):not([type="range"]):not([type="radio"]),
@@ -38,10 +44,6 @@ input[type="range"] {
 
 input[type="checkbox"] {
   @apply h-4 w-4 shrink-0 rounded accent-ink;
-}
-
-.pill {
-  @apply inline-flex items-center rounded-full bg-canvas px-2.5 py-1 text-xs font-medium text-muted;
 }
 
 .mermaid-wrap svg {
