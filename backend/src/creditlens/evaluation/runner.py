@@ -277,23 +277,9 @@ def latest_summary() -> dict:
     conn = get_conn()
     row = conn.execute("SELECT * FROM eval_runs ORDER BY started_at DESC LIMIT 1").fetchone()
     if not row:
-        return {
-            "overall": 0.94,
-            "faithfulness": 0.96,
-            "policy_compliance": 0.98,
-            "recall_at_5": 0.91,
-            "citation_precision": 0.97,
-            "scoring_consistency": 1.0,
-            "latency_p50": 1.4,
-            "latency_p95": 3.8,
-            "experiments": [
-                {"name": "baseline-rag", "score": 89.2},
-                {"name": "hybrid-rag", "score": 93.7, "delta": 4.5},
-                {"name": "hybrid-rerank", "score": 94.3, "delta": 0.6},
-            ],
-        }
+        return {}
     summary = json.loads(row["summary_json"])
-    values = list(summary.values())
-    summary["overall"] = round(sum(values) / max(len(values), 1), 4)
-    summary["experiments"] = list_experiments()
+    values = [value for value in summary.values() if isinstance(value, (int, float))]
+    if values:
+        summary["overall"] = round(sum(values) / len(values), 4)
     return summary

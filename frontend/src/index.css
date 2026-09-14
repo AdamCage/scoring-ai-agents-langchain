@@ -6,22 +6,45 @@ html,
 body,
 #root {
   min-height: 100%;
+  background: #f2f3f7;
+  color: #000;
 }
 
-.card {
-  @apply rounded-xl border border-line bg-panel/90 shadow-lg shadow-black/20;
+.tile {
+  @apply rounded-tile bg-white shadow-tile;
 }
 
 .btn {
-  @apply inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-ink hover:brightness-110 disabled:opacity-50;
+  @apply inline-flex items-center justify-center rounded-2xl bg-ink px-5 py-3 text-[15px] font-medium text-white transition hover:bg-neutral-800 disabled:opacity-40;
+}
+
+.btn-yellow {
+  @apply inline-flex items-center justify-center rounded-2xl bg-yellow px-5 py-3 text-[15px] font-medium text-ink transition hover:bg-yhover disabled:opacity-40;
 }
 
 .btn-ghost {
-  @apply inline-flex items-center justify-center rounded-lg border border-line px-3 py-2 text-sm text-slate-200 hover:bg-white/5;
+  @apply inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2.5 text-[15px] text-ink ring-1 ring-line transition hover:bg-canvas;
 }
 
-input,
+input:not([type="checkbox"]):not([type="range"]):not([type="radio"]),
 select,
 textarea {
-  @apply w-full rounded-lg border border-line bg-ink px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent;
+  @apply w-full rounded-2xl border-0 bg-canvas px-4 py-3 text-[15px] text-ink outline-none ring-1 ring-transparent placeholder:text-muted focus:bg-white focus:ring-ink;
+}
+
+input[type="range"] {
+  @apply h-2 w-full cursor-pointer appearance-none rounded-full bg-canvas accent-ink;
+}
+
+input[type="checkbox"] {
+  @apply h-4 w-4 shrink-0 rounded accent-ink;
+}
+
+.pill {
+  @apply inline-flex items-center rounded-full bg-canvas px-2.5 py-1 text-xs font-medium text-muted;
+}
+
+.mermaid-wrap svg {
+  max-width: 100%;
+  height: auto;
 }

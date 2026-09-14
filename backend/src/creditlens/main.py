@@ -24,7 +24,8 @@ from creditlens.api.docs import router as docs_router
 from creditlens.api.rate_limit import limit
 from creditlens.config import ROOT, get_settings
 from creditlens.db import init_db
-from creditlens.evaluation.runner import latest_summary, list_experiments
+from creditlens.evaluation.quality_gate import THRESHOLDS, evaluate_summary
+from creditlens.evaluation.runner import latest_summary, list_experiments, run_evals
 from creditlens.llm.routerai import llm_available
 from creditlens.observability.factory import get_observability
 from creditlens.presets import preset_by_id, presets
@@ -72,6 +73,11 @@ class WhatIfBody(BaseModel):
 class ReviewBody(BaseModel):
     decision: str
     comment: str = ""
+
+
+class EvalBody(BaseModel):
+    experiment: str = "hybrid-rerank"
+    smoke: bool = True
 
 
 @app.get("/api/health")
@@ -214,9 +220,31 @@ def run_trace(run_id: str, _: str = Depends(require_session)) -> dict:
     return item.model_dump()
 
 
+def _evals_payload() -> dict:
+    summary = latest_summary()
+    experiments = list_experiments()
+    gate = None
+    if experiments:
+        passed, failed = evaluate_summary(summary)
+        gate = {"passed": passed, "failed": failed}
+    return {
+        "summary": summary,
+        "experiments": experiments,
+        "gate": gate,
+        "thresholds": THRESHOLDS,
+    }
+
+
 @app.get("/api/evals")
 def evals(_: str = Depends(require_session)) -> dict:
-    return {"summary": latest_summary(), "experiments": list_experiments()}
+    return _evals_payload()
+
+
+@app.post("/api/evals")
+def run_evaluation(body: EvalBody, request: Request, _: str = Depends(require_session)):
+    limit(request, 4, 300)
+    run_evals(experiment=body.experiment, smoke=body.smoke)
+    return _evals_payload()
 
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"

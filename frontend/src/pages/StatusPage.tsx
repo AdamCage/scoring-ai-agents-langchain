@@ -1,29 +1,35 @@
 import { useQuery } from "@tanstack/react-query";
 import { Health, api } from "../api";
+import { PageTitle } from "../ui";
 
 export function StatusPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: () => api<Health>("/api/health") });
   const data = health.data;
-  const rows = [
-    ["API", data?.status],
-    ["Scoring model", data?.scoring_model],
-    ["Vector index", data?.vector_index],
-    ["Knowledge base", data?.knowledge_base],
-    ["LLM provider", data?.llm_provider],
-    ["Observability", data?.observability],
-    ["LangSmith", data?.langsmith],
-    ["Langfuse", data?.langfuse],
-    ["Build", data?.build],
-    ["Environment", data?.environment],
+  const rows: [string, string][] = [
+    ["API", data?.status ?? "—"],
+    ["Модель скоринга", String(data?.scoring_model ?? "—")],
+    ["Векторный индекс", String(data?.vector_index ?? "—")],
+    ["База знаний", String(data?.knowledge_base ?? "—")],
+    ["LLM", data?.llm_provider ?? "—"],
+    ["Observability", data?.observability ?? "—"],
+    ["LangSmith", data?.langsmith ?? "—"],
+    ["Langfuse", data?.langfuse ?? "—"],
+    ["Сборка", data?.build ?? "—"],
+    ["Среда", data?.environment ?? "—"],
   ];
+
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <h1 className="text-3xl font-semibold">System Status</h1>
-      <ul className="card mt-6 divide-y divide-line">
-        {rows.map(([k, v]) => (
-          <li key={String(k)} className="flex justify-between px-4 py-3 text-sm">
-            <span className="text-slate-400">{k}</span>
-            <span>{String(v ?? "—")}</span>
+    <div>
+      <PageTitle
+        kicker="Статус"
+        title="Что включено в этом демо"
+        text="Короткий чеклист для интервью: модель, RAG, LLM и локальная observability."
+      />
+      <ul className="tile divide-y divide-line">
+        {rows.map(([label, value]) => (
+          <li key={label} className="flex items-center justify-between px-5 py-4 text-sm">
+            <span className="text-muted">{label}</span>
+            <span className="font-medium">{value}</span>
           </li>
         ))}
       </ul>

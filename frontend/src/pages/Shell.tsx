@@ -2,13 +2,13 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, Health } from "../api";
 import { useEffect } from "react";
+import { Logo } from "../ui";
 
 const links = [
-  { to: "/", label: "Workbench" },
-  { to: "/architecture", label: "Architecture" },
+  { to: "/", label: "Заявка" },
+  { to: "/architecture", label: "LangChain" },
   { to: "/observability", label: "Observability" },
-  { to: "/quality", label: "Quality Lab" },
-  { to: "/status", label: "Status" },
+  { to: "/quality", label: "Evaluation" },
 ];
 
 export function Shell() {
@@ -25,30 +25,38 @@ export function Shell() {
   }, [me.isError, navigate]);
 
   return (
-    <div className="min-h-screen">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
-        <div className="flex items-center gap-3">
-          <span className="rounded-md bg-accent/15 px-2 py-1 text-sm font-bold text-accent">CreditLens</span>
-          <span className="hidden text-sm text-slate-400 md:inline">
-            {health.data?.scoring_model} · {health.data?.llm_provider}
-          </span>
+    <div className="min-h-screen bg-canvas">
+      <header className="sticky top-0 z-20 border-b border-line/70 bg-canvas/90 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <Logo />
+          <nav className="flex flex-wrap gap-1">
+            {links.map((link) => (
+              <NavLink
+                key={link.to}
+                to={link.to}
+                end={link.to === "/"}
+                className={({ isActive }) =>
+                  `rounded-full px-3.5 py-2 text-[14px] ${
+                    isActive ? "bg-ink text-white" : "text-muted hover:bg-white hover:text-ink"
+                  }`
+                }
+              >
+                {link.label}
+              </NavLink>
+            ))}
+          </nav>
+          <NavLink
+            to="/status"
+            className="hidden items-center gap-2 text-xs text-muted hover:text-ink md:flex"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+            {health.data?.llm_provider || "…"} · {health.data?.scoring_model || "…"}
+          </NavLink>
         </div>
-        <nav className="flex flex-wrap gap-2">
-          {links.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              className={({ isActive }) =>
-                `rounded-lg px-3 py-1.5 text-sm ${isActive ? "bg-white/10 text-white" : "text-slate-400 hover:text-white"}`
-              }
-              end={link.to === "/"}
-            >
-              {link.label}
-            </NavLink>
-          ))}
-        </nav>
       </header>
-      <Outlet />
+      <div className="mx-auto max-w-6xl px-4 pb-24 pt-6 md:pb-10">
+        <Outlet />
+      </div>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Application, Preset, SSEEvent, api } from "../api";
+import { PageTitle, TechPill } from "../ui";
 
 const emptyApp: Application = {
   application_id: "CUSTOM",
@@ -25,20 +26,19 @@ const emptyApp: Application = {
   region_risk: 0.2,
 };
 
-const NODE_LABELS: Record<string, string> = {
-  validate_application: "Validation",
-  calculate_score: "Scoring",
-  explain_score: "SHAP",
-  retrieve_policy: "Policy search",
-  retrieve_more: "Retrieve more",
-  risk_analysis: "Risk Analyst",
-  policy_critic: "Critic",
-  synthesize: "Final",
-  human_review: "Human review",
-  request_information: "Need data",
-};
+const STEPS: { node: string; label: string; tech: string }[] = [
+  { node: "validate_application", label: "Проверка", tech: "LangGraph" },
+  { node: "calculate_score", label: "Скоринг", tech: "CatBoost" },
+  { node: "explain_score", label: "SHAP", tech: "Tool" },
+  { node: "retrieve_policy", label: "Политика", tech: "RAG" },
+  { node: "risk_analysis", label: "Аналитик", tech: "LLM" },
+  { node: "policy_critic", label: "Критик", tech: "LLM" },
+  { node: "synthesize", label: "Решение", tech: "LangGraph" },
+];
 
-type Tab = "app" | "ai" | "risk" | "kb";
+function money(value: number) {
+  return new Intl.NumberFormat("ru-RU").format(Math.round(value));
+}
 
 export function WorkbenchPage() {
   const presets = useQuery({
@@ -52,22 +52,17 @@ export function WorkbenchPage() {
   const [busy, setBusy] = useState(false);
   const [chat, setChat] = useState("");
   const [chatLog, setChatLog] = useState<{ q: string; a: string }[]>([]);
-  const [tab, setTab] = useState<Tab>("app");
   const [amount, setAmount] = useState(10_000_000);
   const [whatIf, setWhatIf] = useState<Record<string, unknown> | null>(null);
 
   const timeline = useMemo(() => {
-    const seen: Record<string, { status: string; ms?: number }> = {};
+    const seen: Record<string, string> = {};
     for (const event of events) {
       if (!event.node) continue;
-      if (event.type === "node_start") seen[event.node] = { status: "running" };
-      if (event.type === "node_end") seen[event.node] = { status: "done" };
+      if (event.type === "node_start") seen[event.node] = "running";
+      if (event.type === "node_end") seen[event.node] = "done";
     }
-    return Object.keys(NODE_LABELS).map((node) => ({
-      node,
-      label: NODE_LABELS[node],
-      status: seen[node]?.status || "idle",
-    }));
+    return STEPS.map((step) => ({ ...step, status: seen[step.node] || "idle" }));
   }, [events]);
 
   async function analyze() {
@@ -75,6 +70,7 @@ export function WorkbenchPage() {
     setEvents([]);
     setDone(null);
     setWhatIf(null);
+    setChatLog([]);
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -124,47 +120,82 @@ export function WorkbenchPage() {
     setWhatIf(result);
   }
 
-  const scoring = (done?.scoring || {}) as Record<string, unknown>;
-  const rec = (done?.recommendation || {}) as Record<string, unknown>;
+  const scoring = (done?.scoring || {}) as Record<string, string | number>;
+  const rec = (done?.recommendation || {}) as Record<string, string>;
   const shap = ((done?.shap as Record<string, unknown>)?.features || []) as {
     label: string;
     shap_value: number;
   }[];
-  const docs = (done?.documents || []) as { citation: string; text: string; section: string }[];
+  const docs = (done?.documents || []) as { citation: string; text: string }[];
+  const decision = String(scoring.decision || rec.title || "");
+  const maxShap = Math.max(...shap.slice(0, 5).map((item) => Math.abs(item.shap_value)), 0.01);
 
   return (
-    <div className="grid min-h-[calc(100vh-61px)] lg:grid-cols-[320px_1fr_320px]">
-      <aside className={`border-r border-line p-4 ${tab !== "app" ? "hidden lg:block" : ""}`}>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Заявка</h2>
-        <div className="mt-3 grid gap-2">
-          {(presets.data?.presets || []).map((preset) => (
+    <div>
+      <PageTitle
+        kicker="Демо для интервью"
+        title="Разбор кредитной заявки"
+        text="Модель считает score. Агенты LangGraph объясняют и цитируют политику. Каждый шаг пишется в trace и проверяется evals."
+      />
+
+      <div className="mb-5 grid gap-3 md:grid-cols-3">
+        <Link className="tile p-4" to="/architecture">
+          <p className="text-xs text-muted">1 · LangChain</p>
+          <p className="mt-1 text-[16px] font-semibold">Граф и tools</p>
+          <p className="mt-1 text-sm text-muted">CatBoost пишет score. LLM только объясняет.</p>
+        </Link>
+        <Link className="tile p-4" to="/observability">
+          <p className="text-xs text-muted">2 · Observability</p>
+          <p className="mt-1 text-[16px] font-semibold">Локальные spans</p>
+          <p className="mt-1 text-sm text-muted">SQLite-трейсы без LangSmith и Langfuse.</p>
+        </Link>
+        <Link className="tile p-4" to="/quality">
+          <p className="text-xs text-muted">3 · Evaluation</p>
+          <p className="mt-1 text-[16px] font-semibold">Quality gate</p>
+          <p className="mt-1 text-sm text-muted">Цитаты, RAG hit-rate и целостность скора.</p>
+        </Link>
+      </div>
+
+      <div className="-mx-1 flex gap-2 overflow-x-auto pb-3">
+        {(presets.data?.presets || []).map((preset) => {
+          const active = app.application_id === preset.application.application_id;
+          return (
             <button
               key={preset.id}
-              className="btn-ghost text-left"
+              className={`min-w-[168px] rounded-tile px-4 py-3 text-left ${
+                active ? "bg-yellow" : "bg-white shadow-tile"
+              }`}
               onClick={() => {
                 setApp(preset.application);
                 setAmount(preset.application.requested_amount);
               }}
             >
-              <div className="font-medium">{preset.title}</div>
-              <div className="text-xs text-slate-400">{preset.subtitle}</div>
+              <div className="text-[15px] font-semibold">{preset.title}</div>
+              <div className="mt-1 text-xs text-muted">{preset.subtitle}</div>
             </button>
-          ))}
-        </div>
-        <div className="mt-4 grid gap-2 text-sm">
+          );
+        })}
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[280px_1fr]">
+        <section className="tile p-5">
+          <h2 className="text-[17px] font-semibold">Заявка</h2>
+          <label className="mt-4 block text-sm text-muted">Компания</label>
           <input
+            className="mt-1"
             value={app.company_name}
             onChange={(e) => setApp({ ...app, company_name: e.target.value })}
-            placeholder="Название"
           />
-          <label className="text-xs text-slate-400">Выручка, ₽</label>
+          <label className="mt-3 block text-sm text-muted">Выручка, ₽</label>
           <input
+            className="mt-1"
             type="number"
             value={app.annual_revenue}
             onChange={(e) => setApp({ ...app, annual_revenue: Number(e.target.value) })}
           />
-          <label className="text-xs text-slate-400">Сумма кредита, ₽</label>
+          <label className="mt-3 block text-sm text-muted">Сумма кредита, ₽</label>
           <input
+            className="mt-1"
             type="number"
             value={app.requested_amount}
             onChange={(e) => {
@@ -173,126 +204,164 @@ export function WorkbenchPage() {
               setAmount(value);
             }}
           />
-          <label className="text-xs text-slate-400">Долговая нагрузка</label>
+          <label className="mt-3 block text-sm text-muted">Долговая нагрузка</label>
           <input
+            className="mt-1"
             type="number"
             step="0.01"
             value={app.debt_to_revenue}
             onChange={(e) => setApp({ ...app, debt_to_revenue: Number(e.target.value) })}
           />
-        </div>
-        <button className="btn mt-4 w-full" disabled={busy} onClick={analyze}>
-          {busy ? "Анализ..." : "Проанализировать заявку"}
-        </button>
-      </aside>
+          <button className="btn-yellow mt-5 w-full" disabled={busy} onClick={analyze}>
+            {busy ? "Считаем…" : "Проанализировать"}
+          </button>
+        </section>
 
-      <main className={`min-w-0 p-4 ${tab !== "ai" ? "hidden lg:block" : ""}`}>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs text-slate-400">Applicant</div>
-            <h1 className="text-2xl font-semibold">{app.company_name || "Новая заявка"}</h1>
-          </div>
-          <div className="text-right text-xs text-slate-400">RUN {runId?.slice(0, 8) || "—"}</div>
-        </div>
-        <div className="card p-4">
-          <h3 className="text-sm font-semibold text-slate-300">Agent workspace</h3>
-          <ol className="mt-3 space-y-2">
-            {timeline.map((item) => (
-              <li key={item.node} className="flex items-center justify-between text-sm">
-                <span>
-                  {item.status === "done" ? "✓" : item.status === "running" ? "●" : "○"} {item.label}
-                </span>
-                <span className="font-mono text-xs text-slate-500">{item.node}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-        <div className="card mt-4 p-4">
-          <h3 className="text-sm font-semibold">Диалог по заявке</h3>
-          <div className="mt-3 max-h-56 space-y-3 overflow-auto text-sm">
-            {chatLog.map((item, idx) => (
-              <div key={idx}>
-                <p className="text-accent">{item.q}</p>
-                <p className="text-slate-300">{item.a}</p>
+        <div className="grid gap-4">
+          <section className={`tile p-6 ${decision === "APPROVE" || rec.title === "ОДОБРЕНИЕ" ? "bg-yellow" : "bg-white"}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted">{app.company_name || "Выберите клиента"}</p>
+                <h2 className="mt-1 text-[34px] font-semibold leading-none">
+                  {rec.title || (busy ? "Анализ" : "Ждём заявку")}
+                </h2>
               </div>
-            ))}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <input value={chat} onChange={(e) => setChat(e.target.value)} placeholder="Почему такая долговая нагрузка?" />
-            <button className="btn" onClick={sendChat} disabled={!runId}>
-              Спросить
-            </button>
-          </div>
-        </div>
-      </main>
-
-      <aside className={`border-l border-line p-4 ${tab !== "risk" && tab !== "kb" ? "hidden lg:block" : ""}`}>
-        <div className={tab === "kb" ? "hidden lg:block" : ""}>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Risk</h2>
-          <div className="mt-3">
-            <div className="text-4xl font-semibold">{String(scoring.score ?? "—")}</div>
-            <div className="text-sm text-accent">{String(rec.title || scoring.risk_band || "ожидание")}</div>
-            <p className="mt-2 text-sm text-slate-400">{String(rec.summary || "")}</p>
-          </div>
-          {shap.length > 0 && (
-            <div className="mt-4 h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={shap.slice(0, 6)} layout="vertical">
-                  <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="label" width={110} tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                  <Tooltip />
-                  <Bar dataKey="shap_value" fill="#3dd6c6" />
-                </BarChart>
-              </ResponsiveContainer>
+              <TechPill>score пишет только CatBoost</TechPill>
             </div>
+            <div className="mt-6 grid grid-cols-3 gap-3">
+              <div>
+                <div className="text-sm text-muted">Score</div>
+                <div className="text-[28px] font-semibold">{scoring.score ?? "—"}</div>
+              </div>
+              <div>
+                <div className="text-sm text-muted">Риск</div>
+                <div className="text-[28px] font-semibold">{scoring.risk_band ?? "—"}</div>
+              </div>
+              <div>
+                <div className="text-sm text-muted">PD</div>
+                <div className="text-[28px] font-semibold">{scoring.pd ?? "—"}</div>
+              </div>
+            </div>
+            {rec.summary && <p className="mt-4 max-w-3xl text-[15px] leading-6">{rec.summary}</p>}
+          </section>
+
+          <section className="tile p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-[17px] font-semibold">Как идёт LangGraph</h3>
+              <TechPill>live stream</TechPill>
+            </div>
+            <ol className="grid grid-cols-2 gap-2 md:grid-cols-7">
+              {timeline.map((step) => (
+                <li
+                  key={step.node}
+                  className={`rounded-2xl px-3 py-3 ${
+                    step.status === "done"
+                      ? "bg-ink text-white"
+                      : step.status === "running"
+                        ? "bg-yellow"
+                        : "bg-canvas"
+                  }`}
+                >
+                  <div className="text-[13px] font-semibold">{step.label}</div>
+                  <div className={`mt-1 text-[11px] ${step.status === "done" ? "text-white/70" : "text-muted"}`}>
+                    {step.tech}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <section className="tile p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-[17px] font-semibold">Почему такой score</h3>
+            <TechPill>SHAP</TechPill>
+          </div>
+          {shap.length === 0 ? (
+            <p className="text-sm text-muted">После анализа здесь будут факторы модели.</p>
+          ) : (
+            <ul className="space-y-3">
+              {shap.slice(0, 5).map((item) => (
+                <li key={item.label}>
+                  <div className="flex justify-between text-sm">
+                    <span>{item.label}</span>
+                    <span className={item.shap_value > 0 ? "text-bad" : "text-ok"}>
+                      {item.shap_value > 0 ? "+" : ""}
+                      {item.shap_value.toFixed(3)}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-canvas">
+                    <div
+                      className={`h-full rounded-full ${item.shap_value > 0 ? "bg-bad" : "bg-ok"}`}
+                      style={{ width: `${(Math.abs(item.shap_value) / maxShap) * 100}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
-          <div className="mt-4">
-            <div className="text-xs text-slate-400">What if: сумма кредита</div>
+          <div className="mt-6">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted">What-if: сумма {money(amount)} ₽</span>
+              <button className="btn-ghost !py-2 text-sm" onClick={runWhatIf}>
+                Пересчитать
+              </button>
+            </div>
             <input
+              className="mt-2"
               type="range"
               min={1_000_000}
               max={80_000_000}
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
             />
-            <div className="flex items-center justify-between text-xs">
-              <span>{(amount / 1_000_000).toFixed(1)} млн</span>
-              <button className="btn-ghost" onClick={runWhatIf}>
-                Пересчитать
-              </button>
-            </div>
             {whatIf && (
               <p className="mt-2 text-sm">
                 Score {(whatIf.before as { score: number }).score} → {(whatIf.after as { score: number }).score}
               </p>
             )}
           </div>
-        </div>
-        <div className="mt-6">
-          <h3 className="text-sm font-semibold text-slate-300">Sources</h3>
-          <ul className="mt-2 space-y-2 text-xs text-slate-400">
-            {docs.map((doc) => (
-              <li key={doc.citation} className="rounded-lg border border-line p-2">
-                <div className="text-accent">{doc.citation}</div>
-                <div className="line-clamp-4">{doc.text}</div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </aside>
+        </section>
 
-      <nav className="fixed inset-x-0 bottom-0 grid grid-cols-4 border-t border-line bg-ink lg:hidden">
-        {[
-          ["app", "Заявка"],
-          ["ai", "AI"],
-          ["risk", "Risk"],
-          ["kb", "KB"],
-        ].map(([id, label]) => (
-          <button key={id} className={`py-3 text-sm ${tab === id ? "text-accent" : "text-slate-400"}`} onClick={() => setTab(id as Tab)}>
-            {label}
+        <section className="tile p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-[17px] font-semibold">Основания из политики</h3>
+            <TechPill>Hybrid RAG</TechPill>
+          </div>
+          {docs.length === 0 ? (
+            <p className="text-sm text-muted">Цитаты появятся после retrieval.</p>
+          ) : (
+            <ul className="space-y-3">
+              {docs.map((doc) => (
+                <li key={doc.citation} className="rounded-2xl bg-canvas p-3">
+                  <div className="text-sm font-medium">{doc.citation}</div>
+                  <p className="mt-1 line-clamp-3 text-sm text-muted">{doc.text}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <section className="tile mt-4 p-5">
+        <h3 className="text-[17px] font-semibold">Спросить про решение</h3>
+        <div className="mt-4 max-h-56 space-y-3 overflow-auto">
+          {chatLog.map((item, idx) => (
+            <div key={idx}>
+              <div className="ml-auto max-w-[80%] rounded-2xl bg-ink px-4 py-2 text-sm text-white">{item.q}</div>
+              <div className="mt-2 max-w-[90%] rounded-2xl bg-canvas px-4 py-2 text-sm leading-6">{item.a}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex gap-2">
+          <input value={chat} onChange={(e) => setChat(e.target.value)} placeholder="Почему прошла такая нагрузка?" />
+          <button className="btn" onClick={sendChat} disabled={!runId}>
+            Спросить
           </button>
-        ))}
-      </nav>
+        </div>
+      </section>
     </div>
   );
 }

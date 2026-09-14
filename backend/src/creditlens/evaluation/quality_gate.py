@@ -14,6 +14,21 @@ THRESHOLDS = {
 }
 
 
+def evaluate_summary(summary: dict) -> tuple[bool, list[str]]:
+    failed: list[str] = []
+    checked = 0
+    for metric, threshold in THRESHOLDS.items():
+        value = summary.get(metric)
+        if value is None:
+            continue
+        checked += 1
+        if value < threshold:
+            failed.append(f"{metric}={value} < {threshold}")
+    if checked == 0:
+        return False, ["no metrics"]
+    return not failed, failed
+
+
 def main(experiment: str = "hybrid-rerank") -> int:
     path = ROOT / "evals" / "experiments" / experiment / "results.json"
     if not path.exists():
@@ -21,14 +36,8 @@ def main(experiment: str = "hybrid-rerank") -> int:
         return 1
     payload = json.loads(path.read_text(encoding="utf-8"))
     summary = payload.get("summary") or {}
-    failed = []
-    for metric, threshold in THRESHOLDS.items():
-        value = summary.get(metric)
-        if value is None:
-            continue
-        if value < threshold:
-            failed.append(f"{metric}={value} < {threshold}")
-    if failed:
+    passed, failed = evaluate_summary(summary)
+    if not passed:
         print("QUALITY GATE FAILED:", "; ".join(failed))
         return 1
     print("QUALITY GATE PASSED", summary)

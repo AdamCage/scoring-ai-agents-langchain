@@ -62,3 +62,45 @@ export type SSEEvent = {
   timestamp_ms: number;
   data: Record<string, unknown>;
 };
+
+export type SpanEvent = {
+  name: string;
+};
+
+export type Span = {
+  span_id: string;
+  name: string;
+  kind: string;
+  status: string;
+  duration_ms?: number | null;
+  code_path?: string | null;
+  mmd_node?: string | null;
+  error?: string | null;
+  events: SpanEvent[];
+};
+
+export type Trace = {
+  trace_id: string;
+  run_id: string;
+  name: string;
+  duration_ms?: number | null;
+  status: string;
+  started_at: string;
+  metadata: Record<string, unknown>;
+  spans: Span[];
+};
+
+export type Experiment = {
+  run_id: string;
+  experiment: string;
+  started_at: string;
+  summary: Record<string, number>;
+  status: string;
+};
+
+export type EvalsResponse = {
+  summary: Record<string, unknown>;
+  experiments: Experiment[];
+  gate: { passed: boolean; failed: string[] } | null;
+  thresholds: Record<string, number>;
+};

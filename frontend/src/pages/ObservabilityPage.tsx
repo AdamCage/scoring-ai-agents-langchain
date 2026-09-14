@@ -1,59 +1,104 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api";
+import { Health, Trace, api } from "../api";
+import { PageTitle, TechPill } from "../ui";
 
-type Trace = {
-  trace_id: string;
-  run_id: string;
-  name: string;
-  duration_ms?: number;
-  status: string;
-  metadata: Record<string, string>;
-  spans: { span_id: string; name: string; kind: string; duration_ms?: number; code_path?: string; mmd_node?: string; events: { name: string }[] }[];
-};
+function formatMs(value: number | null | undefined) {
+  if (value == null) return "—";
+  if (value < 1000) return `${Math.round(value)} мс`;
+  return `${(value / 1000).toFixed(1)} с`;
+}
 
 export function ObservabilityPage() {
+  const health = useQuery({ queryKey: ["health"], queryFn: () => api<Health>("/api/health") });
   const traces = useQuery({
     queryKey: ["traces"],
     queryFn: () => api<{ traces: Trace[] }>("/api/traces"),
   });
+  const items = traces.data?.traces || [];
+  const [selected, setSelected] = useState("");
+  const current = useMemo(() => {
+    return items.find((item) => item.trace_id === selected) || items[0] || null;
+  }, [items, selected]);
+  const spans = current?.spans || [];
+  const totalMs = spans.reduce((sum, span) => sum + (span.duration_ms || 0), 0);
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
-      <h1 className="text-3xl font-semibold">Observability Lab</h1>
-      <p className="mt-2 text-sm text-slate-400">
-        Локальный tracer на LangChain callbacks + span-дерево LangGraph. Без LangSmith и Langfuse.
-      </p>
-      <div className="mt-6 space-y-4">
-        {(traces.data?.traces || []).map((trace) => (
-          <section key={trace.trace_id} className="card p-4">
-            <div className="flex flex-wrap justify-between gap-2">
-              <div>
-                <div className="font-semibold">{trace.name}</div>
-                <div className="text-xs text-slate-400">run {trace.run_id}</div>
-              </div>
-              <div className="text-sm text-accent">{Math.round(trace.duration_ms || 0)} ms · {trace.status}</div>
-            </div>
-            <div className="mt-2 text-xs text-slate-500">
-              {Object.entries(trace.metadata || {}).map(([k, v]) => `${k}=${v}`).join(" · ")}
-            </div>
-            <ol className="mt-3 space-y-1 text-sm">
-              {trace.spans.map((span) => (
-                <li key={span.span_id} className="grid grid-cols-[120px_1fr_80px] gap-2">
-                  <span className="text-slate-500">{span.kind}</span>
-                  <span>
-                    {span.name}
-                    <span className="ml-2 font-mono text-xs text-slate-500">{span.code_path}</span>
-                    {span.events.length > 0 && (
-                      <span className="ml-2 text-xs text-accent">{span.events.map((e) => e.name).join(" → ")}</span>
-                    )}
-                  </span>
-                  <span className="text-right text-slate-400">{Math.round(span.duration_ms || 0)} ms</span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        ))}
+    <div>
+      <PageTitle
+        kicker="Observability"
+        title="Что произошло в этом прогоне"
+        text="Локальные spans в SQLite: узел, длительность, события, code path. Без LangSmith и Langfuse."
+      />
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <Metric label="Провайдер" value={health.data?.observability ?? "—"} />
+        <Metric label="LangSmith / Langfuse" value="выключены" />
+        <Metric label="Прогонов" value={String(items.length)} />
+        <Metric label="Сумма таймингов" value={formatMs(current ? totalMs : null)} />
       </div>
+
+      <section className="tile mt-6 p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-[17px] font-semibold">История операций</h2>
+            <p className="mt-1 text-sm text-muted">Как выписка в банке: один прогон — одна лента узлов.</p>
+          </div>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-muted">Прогон</span>
+            <select
+              className="min-w-[240px]"
+              value={current?.trace_id || ""}
+              onChange={(e) => setSelected(e.target.value)}
+            >
+              {items.length === 0 ? <option value="">Пока пусто</option> : null}
+              {items.map((item) => (
+                <option key={item.trace_id} value={item.trace_id}>
+                  {item.name} · {formatMs(item.duration_ms)} · {item.status}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {traces.isError ? <p className="mt-4 text-sm text-bad">Не удалось загрузить traces</p> : null}
+
+        {spans.length === 0 ? (
+          <p className="mt-8 text-sm text-muted">Прогоните заявку на вкладке «Заявка» — здесь появится trace.</p>
+        ) : (
+          <ol className="mt-6 space-y-3">
+            {spans.map((span, index) => (
+              <li key={span.span_id} className="flex items-start gap-4 rounded-2xl bg-canvas px-4 py-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold shadow-tile">
+                  {index + 1}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">{span.name}</p>
+                    <p className="text-sm text-muted">{formatMs(span.duration_ms)}</p>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
+                    <TechPill>{span.kind}</TechPill>
+                    {span.mmd_node ? <TechPill>{span.mmd_node}</TechPill> : null}
+                    {span.events.length ? <span className="rounded-full bg-white px-2.5 py-1">{span.events.map((event) => event.name).join(" → ")}</span> : null}
+                    {span.error ? <span className="rounded-full bg-red-50 px-2.5 py-1 text-bad">{span.error}</span> : null}
+                  </div>
+                  {span.code_path ? <p className="mt-2 font-mono text-[11px] text-muted">{span.code_path}</p> : null}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
     </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="tile p-5">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="mt-2 text-2xl font-semibold">{value}</p>
+    </article>
   );
 }

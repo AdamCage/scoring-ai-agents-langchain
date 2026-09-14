@@ -23,3 +23,10 @@ def test_health_and_login_flow():
     chat = client.post("/api/chat", json={"run_id": run_id, "message": "Почему такая долговая нагрузка?"})
     assert chat.status_code == 200
     assert "score" in chat.json()["answer"]
+    traces = client.get("/api/traces")
+    assert traces.status_code == 200
+    assert traces.json()["traces"]
+    evals = client.get("/api/evals")
+    assert evals.status_code == 200
+    assert "summary" in evals.json()
+    assert "experiments" in evals.json()

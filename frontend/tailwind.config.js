@@ -4,16 +4,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#0b1220",
-        panel: "#121a2b",
-        line: "#243049",
-        accent: "#3dd6c6",
-        warn: "#f5c16c",
-        danger: "#f07167",
+        canvas: "#F2F3F7",
+        ink: "#000000",
+        muted: "#6E6E73",
+        line: "#E4E5EA",
+        yellow: "#FFCC00",
+        yhover: "#F0C000",
+        ok: "#11803A",
+        wait: "#C45C00",
+        bad: "#E31227",
+      },
+      borderRadius: {
+        tile: "24px",
       },
       fontFamily: {
-        sans: ["IBM Plex Sans", "system-ui", "sans-serif"],
-        mono: ["IBM Plex Mono", "ui-monospace", "monospace"],
+        sans: ['"Golos Text"', "YS Text", "Arial", "sans-serif"],
+        mono: ["ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      boxShadow: {
+        tile: "0 8px 24px rgba(0,0,0,0.04)",
       },
     },
   },

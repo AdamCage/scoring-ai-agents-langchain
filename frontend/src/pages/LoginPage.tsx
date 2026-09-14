@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { Logo } from "../ui";
 
 export function LoginPage() {
   const [password, setPassword] = useState("");
@@ -14,29 +15,37 @@ export function LoginPage() {
       await api("/api/auth/login", { method: "POST", body: JSON.stringify({ password }) });
       navigate("/");
     } catch {
-      setError("Неверный demo-пароль");
+      setError("Неверный пароль");
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#16324a,transparent_45%),#0b1220] p-6">
-      <form onSubmit={onSubmit} className="card w-full max-w-md p-8">
-        <p className="text-xs uppercase tracking-[0.3em] text-accent">CreditLens</p>
-        <h1 className="mt-3 text-3xl font-semibold">Agentic Credit Intelligence</h1>
-        <p className="mt-2 text-sm text-slate-400">
-          ML считает score. Агенты объясняют. Evals держат качество.
+    <div className="flex min-h-screen items-center justify-center bg-canvas p-6">
+      <form onSubmit={onSubmit} className="tile w-full max-w-md p-8">
+        <Logo />
+        <h1 className="mt-6 text-[32px] font-semibold leading-tight">Демо лаборатории</h1>
+        <p className="mt-3 text-[16px] leading-6 text-muted">
+          Как в банковском приложении: заявка слева, решение крупно. Под капотом — LangChain, локальная
+          observability и evaluation.
         </p>
-        <label className="mt-8 block text-sm text-slate-300">Demo access</label>
+        <div className="mt-6 grid grid-cols-3 gap-2 text-center text-xs">
+          {["LangChain", "Observability", "Evaluation"].map((item) => (
+            <div key={item} className="rounded-2xl bg-canvas px-2 py-3 font-medium">
+              {item}
+            </div>
+          ))}
+        </div>
         <input
-          className="mt-2"
+          className="mt-6"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Пароль демо"
         />
-        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
-        <button className="btn mt-6 w-full" type="submit">
-          Войти в лабораторию
+        <p className="mt-2 text-xs text-muted">Для демо: creditlens-demo</p>
+        {error && <p className="mt-3 text-sm text-bad">{error}</p>}
+        <button className="btn-yellow mt-5 w-full" type="submit">
+          Войти
         </button>
       </form>
     </div>
